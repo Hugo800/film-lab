@@ -1,0 +1,16 @@
+# Film Lab unter https://lab.hugobarthelmess.de. Davor sitzt der nginx vom web-stack
+# (/opt/web-stack auf dem OTC-Server), der TLS beendet und hierher weiterreicht.
+# Deployt wird per CI (.github/workflows/ci.yml → ~/film-lab/deploy.sh).
+name: film-lab
+services:
+  film-lab:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: film-lab
+    restart: unless-stopped
+    networks: [web]
+networks:
+  web:
+    external: true
+    name: web-stack_default

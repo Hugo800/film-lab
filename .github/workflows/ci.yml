@@ -1,0 +1,64 @@
+name: CI/CD
+
+# Jeder Push und Pull Request wird getestet. Ein grüner Push auf main geht live nach
+# https://lab.hugobarthelmess.de, sobald das Deployment eingerichtet ist (Repo-Variable
+# DEPLOY_ENABLED=true, Secrets DEPLOY_SSH_KEY und DEPLOY_KNOWN_HOSTS – siehe docs/DEPLOY.md).
+# Der Schlüssel auf dem Server ist auf ~/film-lab/deploy.sh beschränkt.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck, Lint, Unit-Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # Deployments laufen nacheinander, keiner wird abgebrochen. deploy.sh überspringt
+    # Commits, die älter sind als der Live-Stand.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://lab.hugobarthelmess.de
+    steps:
+      - name: Deploy auf den OTC-Server
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 ubuntu@164.30.69.35 "$GITHUB_SHA"
+
+      - name: Seite erreichbar
+        run: curl -fsS -o /dev/null --retry 5 --retry-delay 3 --retry-all-errors https://lab.hugobarthelmess.de/
