@@ -1,12 +1,13 @@
-// Browser-Test der RAW-Dekodierung: node scripts/raw-test.mjs [basisUrl] [raw-pfad unter basisUrl]
-// Vorher läuft ein Server auf Port 5182 (Dev: `npx vite --port 5182 --strictPort`, Build: siehe scripts/raw-build-test.mjs).
+// Browser-Test der RAW-Dekodierung: npm run test:raw
+// Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190). Den Produktionsbuild prüft npm run test:browser.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg } from 'node:os';
-import { launch } from './lib/browser.mjs';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const base = process.argv[2] ?? 'http://localhost:5182';
-const rawPath = process.argv[3] ?? '/testbilder/raw/DSC01542.ARW';
+const server = await startDevServer();
+const base = server.url;
+const rawPath = '/testbilder/raw/DSC01542.ARW';
 const outDir = new URL('../test-output/raw/', import.meta.url).pathname;
 mkdirSync(outDir, { recursive: true });
 
@@ -120,5 +121,6 @@ check(bad.rejected && /RAW-Datei/.test(bad.message), 'kaputte Datei → verstän
 check(workers() === 0, 'nach dem Fehler kein Worker', `${workers()} Worker`);
 
 await browser.close();
+await server.close();
 console.log(failures ? `\n${failures} Prüfung(en) fehlgeschlagen` : '\nalle Prüfungen bestanden');
 process.exit(failures ? 1 : 0);

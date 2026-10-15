@@ -37,6 +37,13 @@ uniform vec2 uSrcOrigin;  // linke obere Ecke des hochgeladenen Ausschnitts
 uniform vec2 uSrcTexSize; // Größe des hochgeladenen Ausschnitts
 uniform vec2 uMapScale;   // imgPx = gl_FragCoord.xy * uMapScale + uMapOffset
 uniform vec2 uMapOffset;
+uniform int uSrcP3;       // 1 = Ausschnitt ist Display P3 → nach sRGB umrechnen
+
+// Display P3 → sRGB in linearem Licht (beide D65, gleiche Kurve); außerhalb von sRGB geklemmt
+// wie bei der Umrechnung des Browsers. Spaltenweise.
+const mat3 P3_TO_SRGB = mat3(1.2249402, -0.0420570, -0.0196376,
+                             -0.2249402, 1.0420570, -0.0786360,
+                             0.0, 0.0, 1.0982736);
 
 vec3 sampleSrc(vec2 imgPx) {
   vec2 k = uSrcSize / uOutSize;
@@ -51,7 +58,8 @@ vec3 sampleSrc(vec2 imgPx) {
       acc += texture(uSrc, (s + o) / uSrcTexSize).rgb;
     }
   }
-  return acc / float(n.x * n.y);
+  acc /= float(n.x * n.y);
+  return uSrcP3 == 1 ? toEncoded(P3_TO_SRGB * toLinear(acc)) : acc;
 }
 `;
 

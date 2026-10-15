@@ -11,8 +11,14 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test:unit": "vitest run",
+    "test": "npm run typecheck && npm run lint && npm run test:unit",
     "test:browser": "node scripts/browser-test.mjs",
-    "test": "npm run typecheck && npm run lint && npm run test:unit"
+    "test:engine": "node scripts/engine-test.mjs",
+    "test:io": "node scripts/io-test.mjs",
+    "test:raw": "node scripts/raw-test.mjs",
+    "looks:sheet": "node scripts/looks-sheet.mjs",
+    "ui:flow": "node scripts/ui-flow.mjs",
+    "ui:shots": "node scripts/ui-shots.mjs"
   },
   "dependencies": {
     "@jsquash/jpeg": "^1.6.0",

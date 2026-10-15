@@ -1,4 +1,5 @@
 // WebGL2-Pipeline: Vorschau im Canvas, Look-Kacheln und Export in voller Auflösung (gekachelt).
+// Gerechnet wird in sRGB: Display-P3-Quellen werden beim Abtasten umgerechnet (siehe SAMPLE_SRC).
 import { encodeJpeg, withMetadata } from '../io';
 import type { Engine, ExportOptions, LookParams, Lut3D, RenderOptions, SourceImage } from '../types';
 import {
@@ -67,6 +68,8 @@ interface Prepared {
   preview: Target;
   haloSrc: Target;
 }
+
+const isP3 = (src: SourceImage) => src.colorSpace === 'display-p3';
 
 function abortError(): DOMException {
   return new DOMException('Export abgebrochen', 'AbortError');
@@ -159,6 +162,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     texSize: [number, number],
     mapScale: [number, number],
     mapOffset: [number, number],
+    p3 = false,
   ) {
     bindTex(0, gl!.TEXTURE_2D, srcTex);
     gl!.uniform1i(p.loc('uSrc'), 0);
@@ -168,6 +172,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     gl!.uniform2f(p.loc('uSrcTexSize'), texSize[0], texSize[1]);
     gl!.uniform2f(p.loc('uMapScale'), mapScale[0], mapScale[1]);
     gl!.uniform2f(p.loc('uMapOffset'), mapOffset[0], mapOffset[1]);
+    gl!.uniform1i(p.loc('uSrcP3'), p3 ? 1 : 0);
   }
 
   function setLook(p: Program, l: Lut3D | null, params: LookParams, haloMap: Target | null) {
@@ -206,7 +211,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   }
 
   /**
-   * Verkleinert die Quelle in neue Texturen der Größen `sizes`. Die Quelle wird in Ausschnitten
+   * Verkleinert die Quelle in neue Texturen der Größen `sizes` (immer sRGB, P3 wird umgerechnet). Die Quelle wird in Ausschnitten
    * ≤ TILE_LIMIT hochgeladen; jeder Ausschnitt rendert die Zielpixel, deren Mitte in ihm liegt.
    */
   async function resample(src: SourceImage, sizes: Size[], current: () => boolean): Promise<Target[]> {
@@ -229,7 +234,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
           gl!.bindFramebuffer(gl!.FRAMEBUFFER, t.fbo);
           gl!.viewport(x0, y0, x1 - x0, y1 - y0);
           gl!.useProgram(r.resample.prog);
-          setSampling(r.resample, tex, t, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [0, 0]);
+          setSampling(r.resample, tex, t, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [0, 0], isP3(src));
           draw(r.resample);
         });
       }
@@ -348,7 +353,6 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   function setSource(src: SourceImage) {
     source = src;
     if (disposed || !res || gl!.isContextLost()) return;
-    gl!.drawingBufferColorSpace = src.colorSpace === 'display-p3' ? 'display-p3' : 'srgb';
     freePrepared();
     rebuilding = false;
     prepare(src, false);
@@ -416,7 +420,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     } finally {
       deleteTarget(gl!, t);
     }
-    return createImageBitmap(new ImageData(buf, s.width, s.height, { colorSpace: source.colorSpace }));
+    return createImageBitmap(new ImageData(buf, s.width, s.height));
   }
 
   async function exportPixels(
@@ -467,7 +471,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
         gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbo.fbo);
         gl!.viewport(0, 0, x[1] - x[0], y[1] - y[0]);
         gl!.useProgram(r.main.prog);
-        setSampling(r.main, tex, outSize, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [x[0], y[0]]);
+        setSampling(r.main, tex, outSize, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [x[0], y[0]], isP3(src));
         setLook(r.main, l, params, haloMap);
         draw(r.main);
         // Kachelzeile 0 ist Bildzeile y0 (Bildkoordinaten von oben) → direkt in den Gesamtpuffer.
@@ -496,11 +500,13 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     params: LookParams,
     opts: ExportOptions = {},
   ): Promise<Blob> {
-    const img = await exportPixels(src, l, params, opts);
+    const { data, width, height } = await exportPixels(src, l, params, opts);
     if (opts.signal?.aborted) throw abortError();
-    const jpeg = await encodeJpeg(img.data, img.width, img.height, opts.quality ?? 92);
+    // `data` ist ein eigener, ganzer Puffer: encodeJpeg verschiebt ihn in den Worker (danach leer).
+    const jpeg = await encodeJpeg(data, width, height, opts.quality ?? 92);
     if (opts.signal?.aborted) throw abortError();
-    const withMeta = withMetadata(jpeg, src.meta, { width: img.width, height: img.height });
+    // Ausgabe ist sRGB: das ICC-Profil der Quelle (z. B. Display P3) passt nicht mehr.
+    const withMeta = withMetadata(jpeg, { ...src.meta, icc: undefined }, { width, height });
     opts.onProgress?.(1);
     return new Blob([withMeta as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' });
   }

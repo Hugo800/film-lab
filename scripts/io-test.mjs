@@ -1,18 +1,10 @@
-// Browser-Test für src/io: node scripts/io-test.mjs [--build]
-// Startet Vite selbst (Port 5184); mit --build wird nach test-output/io-build gebaut und statisch ausgeliefert.
-import { spawn, spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { launch } from './lib/browser.mjs';
+// Browser-Test für src/io: npm run test:io
+// Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190). Den Produktionsbuild prüft npm run test:browser.
+import { spawnSync } from 'node:child_process';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const PORT = 5184;
-const build = process.argv.includes('--build');
 const images = ['DSC04866', 'DSC01603', 'DSC03427', 'DSC03982'].map((n) => `/testbilder/${n}.JPEG`);
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.JPEG': 'image/jpeg' };
 /** RSS (MB) des Chrome-Prozessbaums unter `pid`; andere Chrome-Instanzen (parallele Agents) zählen nicht. */
 function treeRssMB(pid) {
   const rows = spawnSync('ps', ['-eo', 'pid=,ppid=,rss='], { encoding: 'utf8' }).stdout
@@ -38,51 +30,16 @@ async function withRssPeak(pid, work) {
   }
 }
 
-let server;
-let vite;
-
-async function waitFor(url) {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(url)).ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`${url} nicht erreichbar`);
-}
-
-if (build) {
-  const r = spawnSync('npx', ['vite', 'build', '--config', 'scripts/io-build.config.mjs'], { cwd: root, stdio: 'inherit' });
-  if (r.status !== 0) throw new Error('vite build fehlgeschlagen');
-  const out = join(root, 'test-output/io-build');
-  server = createServer((req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
-    const file = path.startsWith('/testbilder/') ? join(root, path) : join(out, path);
-    if (!existsSync(file) || !statSync(file).isFile()) {
-      res.writeHead(404).end();
-      return;
-    }
-    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-    createReadStream(file).pipe(res);
-  }).listen(PORT);
-} else {
-  vite = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore', detached: true });
-}
-
-const page_url = `http://localhost:${PORT}/scripts/harness/io-test.html`;
+const server = await startDevServer();
+const page_url = `${server.url}/scripts/harness/io-test.html`;
 let browser;
 let failed = false;
 try {
-  await waitFor(page_url);
   const launched = await launch();
   browser = launched.browser;
   const page = launched.page;
-  // Der Dev-Server bündelt beim ersten Aufruf neu entdeckte Pakete vor und lädt die Seite dabei neu.
-  for (let i = 0; i < 2; i++) {
-    await page.goto(page_url);
-    await page.waitForFunction(() => window.io !== undefined, { timeout: 120_000 });
-    await new Promise((r) => setTimeout(r, 1500));
-  }
+  await page.goto(page_url);
+  await page.waitForFunction(() => window.io !== undefined, { timeout: 120_000 });
   const show = (title, v) => console.log(`\n== ${title}\n${JSON.stringify(v, null, 1)}`);
 
   show('isRawFile', await page.evaluate(() => ['a.ARW', 'b.jpg', 'c.dng', 'd.JPEG', 'e.arw.jpg'].map((n) => [n, window.io.isRawFile(n)])));
@@ -110,7 +67,6 @@ try {
   console.error(e);
 } finally {
   await browser?.close();
-  server?.close();
-  if (vite?.pid) process.kill(-vite.pid);
+  await server.close();
 }
 process.exit(failed ? 1 : 0);

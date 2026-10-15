@@ -1,12 +1,13 @@
-// Funktionstest der Oberfläche im Browser: node scripts/ui-flow.mjs [port] [handy|pc]
-// Bedienung per Maus/Tastatur wie ein Nutzer; Bildschirmfotos und Download nach test-output/ui/.
+// Funktionstest der Oberfläche im Browser: npm run ui:flow [-- handy|pc]
+// Startet den Test-Dev-Server (Port TEST_PORT, Vorgabe 5190). Bedienung per Maus/Tastatur wie ein Nutzer;
+// Bildschirmfotos und Download nach test-output/ui/.
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { launch } from './lib/browser.mjs';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const PORT = process.argv[2] ?? '5183';
-const MODE = process.argv[3] ?? 'handy';
-const URL = `http://localhost:${PORT}/`;
+const MODE = process.argv[2] ?? 'handy';
+const server = await startDevServer();
+const URL = `${server.url}/`;
 const OUT = resolve('test-output/ui');
 const DL = resolve(OUT, 'downloads');
 const PHOTOS = ['testbilder/DSC04866.JPEG', 'testbilder/DSC03427.JPEG'].map((p) => resolve(p));
@@ -232,4 +233,5 @@ const small = await page.evaluate(() => {
 console.log('Kleiner als 44 px:', small.length ? small.join('; ') : 'keine');
 console.log(fails ? `\n${fails} FEHLER` : '\nalles OK');
 await browser.close();
+await server.close();
 process.exit(fails ? 1 : 0);

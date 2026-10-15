@@ -1,10 +1,11 @@
-// Browser-Prüfung der Engine: node scripts/engine-test.mjs [schritt …]
-// Erwartet einen Vite-Server auf Port 5181 (npx vite --port 5181 --strictPort).
+// Browser-Prüfung der Engine: npm run test:engine [-- schritt …]
+// Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190).
 // Schritte: identity seams compare timing abort jpeg thumbs loss mobile shots (ohne Angabe: alle).
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { launch } from './lib/browser.mjs';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const BASE = process.env.ENGINE_URL ?? 'http://localhost:5181';
+const server = await startDevServer();
+const BASE = server.url;
 const OUT = 'test-output/engine';
 mkdirSync(OUT, { recursive: true });
 
@@ -29,10 +30,17 @@ try {
   const LOOK = looks[0] ?? null;
 
   if (want('identity')) {
+    // sRGB-Quelle (Rohwerte als sRGB ausgegeben): bitgenau.
+    for (const name of ['DSC03427.JPEG', 'DSC04866.JPEG']) {
+      const r = await T('identity', name, 2048, 'srgb');
+      results[`identity srgb ${name}`] = r;
+      expect(r.max === 0, `a) Identität sRGB ${name} ${r.w}×${r.h}: max ${r.max}, Mittel ${r.mean.toFixed(4)}, gespiegelt wäre Mittel ${r.vsFlipped.toFixed(1)} (${(r.ms / 1000).toFixed(1)} s)`);
+    }
+    // Display-P3-Quelle: gegen die Umrechnung des Browsers (Canvas-Dekodierung nach sRGB).
     for (const name of ['DSC03427.JPEG', 'DSC04866.JPEG', 'DSC01603.JPEG']) {
-      const r = await T('identity', name, 2048);
-      results[`identity ${name}`] = r;
-      expect(r.max <= 2, `a) Identität ${name} ${r.w}×${r.h}: max ${r.max}, Mittel ${r.mean.toFixed(4)}, >2: ${r.over2}, gespiegelt wäre Mittel ${r.vsFlipped.toFixed(1)} (${(r.ms / 1000).toFixed(1)} s)`);
+      const r = await T('identity', name, 2048, 'display-p3');
+      results[`identity p3 ${name}`] = r;
+      expect(r.mean <= 1.5 && r.max <= 8 && r.mean < r.rawVsRef / 10, `a) P3 → sRGB ${name} ${r.w}×${r.h}: Mittel ${r.mean.toFixed(3)}, max ${r.max}, >2: ${(r.over2 / (r.w * r.h * 3) * 100).toFixed(3)} %; ohne Umrechnung wäre Mittel ${r.rawVsRef.toFixed(2)} (${(r.ms / 1000).toFixed(1)} s)`);
     }
   }
 
@@ -77,8 +85,8 @@ try {
     const r = await T('jpeg', 'DSC03427.JPEG', ALL, LOOK);
     results.jpeg = r;
     if (r.error) console.log(`HINWEIS exportJpeg: ${r.error}`);
-    else expect(r.w === 3670 && r.h === 5505 && r.segs.some((x) => x.startsWith('e1:Exif')) && r.segs.some((x) => x.startsWith('e2:ICC_')),
-      `exportJpeg mit io.loadFile: ${r.w}×${r.h}, ${(r.bytes / 1e6).toFixed(2)} MB, ${(r.ms / 1000).toFixed(1)} s, Farbraum ${r.colorSpace}, Segmente ${r.segs.join(' ')}`);
+    else expect(r.w === 3670 && r.h === 5505 && r.segs.some((x) => x.startsWith('e1:Exif')) && !r.segs.some((x) => x.startsWith('e2:')) && r.transferred,
+      `exportJpeg mit io.loadFile: ${r.w}×${r.h}, ${(r.bytes / 1e6).toFixed(2)} MB, ${(r.ms / 1000).toFixed(1)} s, Quelle ${r.colorSpace}, Segmente ${r.segs.join(' ')} (ohne ICC), RGBA-Puffer verschoben: ${r.transferred}`);
   }
 
   if (want('thumbs')) {
@@ -102,7 +110,7 @@ try {
       const r = await m.page.evaluate((p, l) => window.T.show('DSC03982.JPEG', p, l, {}), ALL, LOOK);
       const info = await m.page.evaluate(() => window.T.canvasInfo());
       save('shot-mobile', r.png);
-      expect(info.buffer[0] * info.buffer[1] <= 4_010_000 && info.colorSpace === 'display-p3',
+      expect(info.buffer[0] * info.buffer[1] <= 4_010_000 && info.colorSpace === 'srgb',
         `Mobil: Puffer ${info.buffer.join('×')} (CSS ${info.css.join('×')}, DPR ${info.dpr}), ${info.colorSpace}`);
     } finally {
       await m.browser.close();
@@ -126,7 +134,7 @@ try {
     const img = process.env.SHOT_IMG ?? 'DSC03982.JPEG';
     for (const [name, [params, lut]] of Object.entries(shots)) {
       if (only && !only.includes(name)) continue;
-      // Pixel wie gerechnet (Werte im Quellfarbraum), nicht über den Compositor.
+      // Pixel wie gerechnet (sRGB), nicht über den Compositor.
       const r = await T('show', img, params, lut, {});
       save(`shot-${name}`, r.png);
       console.log(`Bild shot-${name}.png, render ${r.ms.toFixed(1)} ms`);
@@ -148,5 +156,6 @@ try {
 } finally {
   writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 2));
   await browser.close();
+  await server.close();
 }
 process.exit(failed ? 1 : 0);

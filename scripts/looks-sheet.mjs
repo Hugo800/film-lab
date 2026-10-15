@@ -1,19 +1,16 @@
-// Kontaktbögen aller Looks ohne Engine: node scripts/looks-sheet.mjs [Kantenlänge]
-// Startet Vite auf Port 5185, schreibt PNGs nach test-output/looks/.
+// Kontaktbögen aller Looks ohne Engine: npm run looks:sheet [-- Kantenlänge]
+// Startet den Test-Dev-Server (Port TEST_PORT, Vorgabe 5190), schreibt PNGs nach test-output/looks/.
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { createServer } from 'vite';
-import { launch } from './lib/browser.mjs';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const PORT = 5185;
 const EDGE = Number(process.argv[2] ?? 480);
 const OUT = 'test-output/looks';
 mkdirSync(OUT, { recursive: true });
 
-const server = await createServer({ server: { port: PORT, strictPort: true }, logLevel: 'warn' });
-await server.listen();
+const server = await startDevServer();
 const { browser, page } = await launch();
 try {
-  await page.goto(`http://localhost:${PORT}/scripts/harness/looks-sheet.html`);
+  await page.goto(`${server.url}/scripts/harness/looks-sheet.html`);
   await page.waitForFunction('window.ready === true', { timeout: 60_000 });
   console.table(await page.evaluate(() => window.lutStats()));
   const images = readdirSync('testbilder').filter((f) => /\.jpe?g$/i.test(f));

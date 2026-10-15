@@ -36,7 +36,7 @@ export function ExportDialog() {
           ))}
         </fieldset>
         <p className="mb-4 text-sm leading-relaxed text-dim">
-          Volle Auflösung als JPEG (Qualität 92). Farbprofil und Aufnahmedaten bleiben erhalten. Mehrere Fotos werden nacheinander verarbeitet.
+          Volle Auflösung als JPEG (Qualität 92, sRGB). Aufnahmedaten bleiben erhalten. Mehrere Fotos werden nacheinander verarbeitet.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={closeExport}>

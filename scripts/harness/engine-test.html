@@ -16,22 +16,35 @@
   import { createEngine } from '/src/engine/index.ts';
   import { identityLut, LOOKS } from '/src/looks/index.ts';
   import { DEFAULT_PARAMS } from '/src/types.ts';
-  import { loadFile } from '/src/io/index.ts';
+  import { encodeJpeg, loadFile } from '/src/io/index.ts';
 
   const canvas = document.getElementById('c');
   let engine = createEngine(canvas);
   const sources = {};
 
-  async function load(name) {
-    if (sources[name]) return sources[name];
+  // Testbilder sind Display P3; mit colorSpace 'srgb' gelten dieselben Rohwerte als sRGB.
+  async function load(name, colorSpace = 'display-p3') {
+    const key = name + '|' + colorSpace;
+    if (sources[key]) return sources[key];
     const blob = await (await fetch('/testbilder/' + name)).blob();
     const bmp = await createImageBitmap(blob, {
       colorSpaceConversion: 'none', imageOrientation: 'from-image', premultiplyAlpha: 'none',
     });
-    return (sources[name] = {
-      id: name, fileName: name, width: bmp.width, height: bmp.height,
-      colorSpace: 'display-p3', pixels: bmp, meta: {}, isRaw: false,
+    return (sources[key] = {
+      id: key, fileName: name, width: bmp.width, height: bmp.height,
+      colorSpace, pixels: bmp, meta: {}, isRaw: false,
     });
+  }
+
+  // Referenz für P3-Quellen: der Browser rechnet beim Zeichnen in einen sRGB-Canvas selbst um.
+  async function srgbReference(name) {
+    const blob = await (await fetch('/testbilder/' + name)).blob();
+    const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image', premultiplyAlpha: 'none' });
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext('2d', { colorSpace: 'srgb' });
+    g.drawImage(bmp, 0, 0);
+    bmp.close();
+    return new Uint8Array(g.getImageData(0, 0, c.width, c.height).data.buffer);
   }
 
   // Referenzpixel ohne Engine-Code: Bitmap roh in eine Textur, per Framebuffer zurücklesen.
@@ -131,22 +144,24 @@
       return { maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE), cbf: !!gl.getExtension('EXT_color_buffer_float') };
     },
 
-    async identity(name, tileSize) {
-      const src = await load(name);
+    async identity(name, tileSize, colorSpace) {
+      const src = await load(name, colorSpace);
       const t0 = performance.now();
       const img = await engine.exportPixels(src, identityLut(33), P({}), { tileSize });
       const ms = performance.now() - t0;
-      const ref = reference(src.pixels);
+      const raw = reference(src.pixels);
+      const ref = colorSpace === 'srgb' ? raw : await srgbReference(name);
+      const rawVsRef = diff(raw, ref).mean;
       // Gegenprobe: um eine Zeile verschoben bzw. gespiegelt muss deutlich abweichen.
       const flipped = new Uint8Array(ref.length);
       const rowB = src.width * 4;
       for (let y = 0; y < src.height; y++) flipped.set(ref.subarray(y * rowB, (y + 1) * rowB), (src.height - 1 - y) * rowB);
-      return { w: img.width, h: img.height, ms, ...diff(img.data, ref), flippedMean: diff(flipped, ref).mean, vsFlipped: diff(img.data, flipped).mean };
+      return { w: img.width, h: img.height, ms, ...diff(img.data, ref), rawVsRef, vsFlipped: diff(img.data, flipped).mean };
     },
 
     // RAW-Pfad: Quelle als RGBA-Puffer statt ImageBitmap (Hochladen per UNPACK_SKIP_*).
     async identityRaw(name) {
-      const src = await load(name);
+      const src = await load(name, 'srgb');
       const ref = reference(src.pixels);
       const raw = { ...src, id: name + '-raw', pixels: { data: ref, width: src.width, height: src.height } };
       const img = await engine.exportPixels(raw, null, P({}), { tileSize: 1024 });
@@ -248,6 +263,10 @@
         const src = await loadFile(file);
         const blob = await engine.exportJpeg(src, look(lutId), P(params), { quality: 90 });
         const bytes = new Uint8Array(await blob.arrayBuffer());
+        // Speicher: der Exportpuffer muss in den Worker verschoben werden (danach leer), nicht kopiert.
+        const px = await engine.exportPixels(src, null, P({}), { maxEdge: 1000 });
+        await encodeJpeg(px.data, px.width, px.height, 90);
+        const transferred = px.data.byteLength === 0;
         const segs = [];
         for (let i = 2; i < bytes.length && bytes[i] === 0xff && bytes[i + 1] !== 0xda; ) {
           const len = (bytes[i + 2] << 8) | bytes[i + 3];
@@ -255,7 +274,7 @@
           i += 2 + len;
         }
         const bmp = await createImageBitmap(blob);
-        return { ms: performance.now() - t0, bytes: blob.size, type: blob.type, w: bmp.width, h: bmp.height, colorSpace: src.colorSpace, segs };
+        return { ms: performance.now() - t0, bytes: blob.size, type: blob.type, w: bmp.width, h: bmp.height, colorSpace: src.colorSpace, segs, transferred };
       } catch (e) {
         return { error: String(e) };
       }

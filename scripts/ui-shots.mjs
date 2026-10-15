@@ -1,10 +1,10 @@
-// Bildschirmfotos der Oberfläche: node scripts/ui-shots.mjs [port]
+// Bildschirmfotos der Oberfläche: npm run ui:shots (startet den Test-Dev-Server, Port TEST_PORT, Vorgabe 5190)
 // Handy (393×852 @3x) und PC (1440×900); Ausgabe in test-output/ui/.
 import { mkdirSync } from 'node:fs';
-import { launch } from './lib/browser.mjs';
+import { launch, startDevServer } from './lib/browser.mjs';
 
-const PORT = process.argv[2] ?? '5183';
-const URL = `http://localhost:${PORT}/`;
+const server = await startDevServer();
+const URL = `${server.url}/`;
 const OUT = 'test-output/ui';
 const PHOTOS = ['testbilder/DSC04866.JPEG', 'testbilder/DSC03427.JPEG'];
 mkdirSync(OUT, { recursive: true });
@@ -41,3 +41,4 @@ async function run(name, viewport) {
 
 await run('handy', { width: 393, height: 852, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
 await run('pc', { width: 1440, height: 900, deviceScaleFactor: 1 });
+await server.close();
