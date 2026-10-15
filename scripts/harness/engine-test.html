@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine-Test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0c; }
+  #c { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+  // Prüfseite für scripts/engine-test.mjs. Rechnet im Browser, liefert nur Zahlen/kleine PNGs zurück.
+  import { createEngine } from '/src/engine/index.ts';
+  import { identityLut, LOOKS } from '/src/looks/index.ts';
+  import { DEFAULT_PARAMS } from '/src/types.ts';
+  import { loadFile } from '/src/io/index.ts';
+
+  const canvas = document.getElementById('c');
+  let engine = createEngine(canvas);
+  const sources = {};
+
+  async function load(name) {
+    if (sources[name]) return sources[name];
+    const blob = await (await fetch('/testbilder/' + name)).blob();
+    const bmp = await createImageBitmap(blob, {
+      colorSpaceConversion: 'none', imageOrientation: 'from-image', premultiplyAlpha: 'none',
+    });
+    return (sources[name] = {
+      id: name, fileName: name, width: bmp.width, height: bmp.height,
+      colorSpace: 'display-p3', pixels: bmp, meta: {}, isRaw: false,
+    });
+  }
+
+  // Referenzpixel ohne Engine-Code: Bitmap roh in eine Textur, per Framebuffer zurücklesen.
+  function reference(bmp) {
+    const gl = new OffscreenCanvas(1, 1).getContext('webgl2');
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+    const f = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const out = new Uint8Array(bmp.width * bmp.height * 4);
+    gl.readPixels(0, 0, bmp.width, bmp.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return out;
+  }
+
+  function diff(a, b) {
+    let max = 0, sum = 0, over2 = 0, n = 0;
+    for (let i = 0; i < a.length; i++) {
+      if ((i & 3) === 3) continue;
+      const d = Math.abs(a[i] - b[i]);
+      if (d > max) max = d;
+      if (d > 2) over2++;
+      sum += d; n++;
+    }
+    return { max, mean: sum / n, over2 };
+  }
+
+  // Box-Verkleinerung mit derselben Pixelzuordnung wie die Engine (Fläche k×k um die Mitte).
+  function boxDown(img, w, h) {
+    const out = new Float64Array(w * h * 4), cnt = new Float64Array(w * h);
+    const kx = img.width / w, ky = img.height / h;
+    for (let y = 0; y < img.height; y++) {
+      const ty = Math.min(h - 1, Math.floor((y + 0.5) / ky));
+      for (let x = 0; x < img.width; x++) {
+        const tx = Math.min(w - 1, Math.floor((x + 0.5) / kx));
+        const o = (ty * w + tx), i = (y * img.width + x) * 4;
+        out[o * 4] += img.data[i]; out[o * 4 + 1] += img.data[i + 1]; out[o * 4 + 2] += img.data[i + 2];
+        cnt[o]++;
+      }
+    }
+    const r = new Uint8Array(w * h * 4);
+    for (let o = 0; o < w * h; o++) for (let c = 0; c < 4; c++) r[o * 4 + c] = c === 3 ? 255 : Math.round(out[o * 4 + c] / cnt[o]);
+    return r;
+  }
+
+  function stats(img, x0, y0, w, h) {
+    // Standardabweichung der Luma-Differenz zu 3×3-Mittel → Maß für feines Rauschen.
+    let s = 0, s2 = 0, n = 0;
+    const L = (x, y) => { const i = (y * img.width + x) * 4; return 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2]; };
+    for (let y = y0 + 1; y < y0 + h - 1; y++) for (let x = x0 + 1; x < x0 + w - 1; x++) {
+      let m = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) m += L(x + dx, y + dy);
+      const d = L(x, y) - m / 9;
+      s += d; s2 += d * d; n++;
+    }
+    return Math.sqrt(s2 / n - (s / n) ** 2);
+  }
+
+  async function png(data, w, h, x0 = 0, y0 = 0, cw = w, ch = h) {
+    const c = new OffscreenCanvas(cw, ch);
+    const id = new ImageData(cw, ch);
+    for (let y = 0; y < ch; y++) id.data.set(data.subarray(((y0 + y) * w + x0) * 4, ((y0 + y) * w + x0 + cw) * 4), y * cw * 4);
+    c.getContext('2d').putImageData(id, 0, 0);
+    const b = await c.convertToBlob({ type: 'image/png' });
+    const bytes = new Uint8Array(await b.arrayBuffer());
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  function readCanvas() {
+    const gl = canvas.getContext('webgl2');
+    const w = canvas.width, h = canvas.height;
+    const raw = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    const out = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) out.set(raw.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    return { data: out, width: w, height: h };
+  }
+
+  function crop(img, x0, y0, w, h) {
+    const out = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) out.set(img.data.subarray(((y0 + y) * img.width + x0) * 4, ((y0 + y) * img.width + x0 + w) * 4), y * w * 4);
+    return out;
+  }
+
+  const P = (o) => ({ ...DEFAULT_PARAMS, ...o });
+  const look = (id) => (id === 'identity' ? identityLut(33) : id ? (LOOKS.find((l) => l.id === id) ?? LOOKS[0])?.buildLut() ?? null : null);
+
+  window.T = {
+    looks: () => LOOKS.map((l) => l.id),
+    gpu: () => {
+      const gl = canvas.getContext('webgl2');
+      return { maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE), cbf: !!gl.getExtension('EXT_color_buffer_float') };
+    },
+
+    async identity(name, tileSize) {
+      const src = await load(name);
+      const t0 = performance.now();
+      const img = await engine.exportPixels(src, identityLut(33), P({}), { tileSize });
+      const ms = performance.now() - t0;
+      const ref = reference(src.pixels);
+      // Gegenprobe: um eine Zeile verschoben bzw. gespiegelt muss deutlich abweichen.
+      const flipped = new Uint8Array(ref.length);
+      const rowB = src.width * 4;
+      for (let y = 0; y < src.height; y++) flipped.set(ref.subarray(y * rowB, (y + 1) * rowB), (src.height - 1 - y) * rowB);
+      return { w: img.width, h: img.height, ms, ...diff(img.data, ref), flippedMean: diff(flipped, ref).mean, vsFlipped: diff(img.data, flipped).mean };
+    },
+
+    // RAW-Pfad: Quelle als RGBA-Puffer statt ImageBitmap (Hochladen per UNPACK_SKIP_*).
+    async identityRaw(name) {
+      const src = await load(name);
+      const ref = reference(src.pixels);
+      const raw = { ...src, id: name + '-raw', pixels: { data: ref, width: src.width, height: src.height } };
+      const img = await engine.exportPixels(raw, null, P({}), { tileSize: 1024 });
+      const small = await engine.exportPixels(raw, null, P({}), { maxEdge: 1000 });
+      const smallBmp = await engine.exportPixels(src, null, P({}), { maxEdge: 1000 });
+      return { w: img.width, h: img.height, ...diff(img.data, ref), smallVsBitmap: diff(small.data, smallBmp.data).max };
+    },
+
+    async seams(name, params, lutId) {
+      const src = await load(name);
+      const lut = look(lutId);
+      const a = await engine.exportPixels(src, lut, P(params), { tileSize: 512 });
+      const t0 = performance.now();
+      const b = await engine.exportPixels(src, lut, P(params), { tileSize: 2048 });
+      const ms = performance.now() - t0;
+      return { ms, ...diff(a.data, b.data) };
+    },
+
+    async previewVsExport(name, params, lutId) {
+      const src = await load(name);
+      const lut = look(lutId);
+      engine.setSource(src);
+      engine.setLut(lut);
+      await engine.ready();
+      engine.render(P(params));
+      const cv = readCanvas();
+      // Bildrechteck im Canvas finden (Hintergrund transparent).
+      let x0 = cv.width, x1 = 0, y0 = cv.height, y1 = 0;
+      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) if (cv.data[(y * cv.width + x) * 4 + 3]) {
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1);
+      }
+      const w = x1 - x0, h = y1 - y0;
+      const prev = crop(cv, x0, y0, w, h);
+      const small = await engine.exportPixels(src, lut, P(params), { maxEdge: Math.max(w, h) });
+      const full = await engine.exportPixels(src, lut, P(params), {});
+      const down = boxDown(full, w, h);
+      const pvImg = { data: prev, width: w, height: h };
+      const cx = Math.floor(w / 2) - 100, cy = Math.floor(h / 2) - 100;
+      return {
+        rect: [x0, y0, w, h], small: [small.width, small.height],
+        vsSmall: small.width === w && small.height === h ? diff(prev, small.data) : null,
+        vsDownscaledFull: diff(prev, down),
+        smallVsDown: small.width === w && small.height === h ? diff(small.data, down) : null,
+        noise: { preview: stats(pvImg, cx, cy, 200, 200), small: stats(small, cx, cy, 200, 200), downFull: stats({ data: down, width: w, height: h }, cx, cy, 200, 200) },
+        png: { preview: await png(prev, w, h), down: await png(down, w, h) },
+      };
+    },
+
+    // Vorschau rendern; Bildschirmfoto macht das Node-Skript.
+    async show(name, params, lutId, opts) {
+      const src = await load(name);
+      engine.setSource(src);
+      engine.setLut(look(lutId));
+      await engine.ready();
+      engine.render(P(params), opts);
+      const t0 = performance.now();
+      const gl = canvas.getContext('webgl2'), px = new Uint8Array(4);
+      for (let i = 0; i < 5; i++) {
+        engine.render(P({ ...params, exposure: (params.exposure ?? 0) + i * 0.01 }), opts);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // wartet auf die GPU
+      }
+      const ms = (performance.now() - t0) / 5;
+      engine.render(P(params), opts);
+      const cv = readCanvas();
+      return { ms, png: await png(cv.data, cv.width, cv.height) };
+    },
+
+    // Ausschnitt in voller Auflösung (100 %) als PNG.
+    async fullCrop(name, params, lutId, rx, ry, cw, ch) {
+      const src = await load(name);
+      const img = await engine.exportPixels(src, look(lutId), P(params), {});
+      const x0 = Math.round(rx * (img.width - cw)), y0 = Math.round(ry * (img.height - ch));
+      return {
+        png: await png(img.data, img.width, img.height, x0, y0, cw, ch),
+        noise: stats(img, x0, y0, Math.min(cw, 300), Math.min(ch, 300)),
+      };
+    },
+
+    async timing(name, params, lutId) {
+      const src = await load(name);
+      const steps = [];
+      const t0 = performance.now();
+      const img = await engine.exportPixels(src, look(lutId), P(params), { onProgress: (f) => steps.push(+f.toFixed(3)) });
+      return { ms: performance.now() - t0, w: img.width, h: img.height, steps };
+    },
+
+    async abort(name) {
+      const src = await load(name);
+      const ac = new AbortController();
+      const p = engine.exportPixels(src, null, P({ grain: 0.5 }), { signal: ac.signal, tileSize: 512, onProgress: (f) => { if (f > 0.2) ac.abort(); } });
+      try { await p; return 'nicht abgebrochen'; } catch (e) { return e.name; }
+    },
+
+    // Ganzer Weg wie in der App: io.loadFile → exportJpeg (encodeJpeg + withMetadata).
+    async jpeg(name, params, lutId) {
+      const t0 = performance.now();
+      try {
+        const file = new File([await (await fetch('/testbilder/' + name)).blob()], name, { type: 'image/jpeg' });
+        const src = await loadFile(file);
+        const blob = await engine.exportJpeg(src, look(lutId), P(params), { quality: 90 });
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const segs = [];
+        for (let i = 2; i < bytes.length && bytes[i] === 0xff && bytes[i + 1] !== 0xda; ) {
+          const len = (bytes[i + 2] << 8) | bytes[i + 3];
+          segs.push(bytes[i + 1].toString(16) + ':' + String.fromCharCode(...bytes.subarray(i + 4, i + 8)).replace(/[^\x20-\x7e]/g, '.'));
+          i += 2 + len;
+        }
+        const bmp = await createImageBitmap(blob);
+        return { ms: performance.now() - t0, bytes: blob.size, type: blob.type, w: bmp.width, h: bmp.height, colorSpace: src.colorSpace, segs };
+      } catch (e) {
+        return { error: String(e) };
+      }
+    },
+
+    canvasInfo() {
+      return { buffer: [canvas.width, canvas.height], css: [canvas.clientWidth, canvas.clientHeight], dpr: devicePixelRatio,
+        colorSpace: canvas.getContext('webgl2').drawingBufferColorSpace };
+    },
+
+    async thumbs(name, ids) {
+      const src = await load(name);
+      engine.setSource(src);
+      await engine.ready();
+      const t0 = performance.now();
+      const bitmaps = [];
+      for (const id of ids) bitmaps.push(await engine.renderThumbnail(look(id), P((LOOKS.find((l) => l.id === id) ?? {}).defaults ?? {}), 240));
+      const ms = (performance.now() - t0) / ids.length;
+      const c = new OffscreenCanvas(bitmaps.reduce((s, b) => s + b.width + 4, 0), 240);
+      const g = c.getContext('2d');
+      let x = 0;
+      for (const b of bitmaps) { g.drawImage(b, x, 0); x += b.width + 4; b.close(); }
+      const id = g.getImageData(0, 0, c.width, c.height);
+      return { ms, png: await png(new Uint8Array(id.data.buffer), c.width, c.height) };
+    },
+
+    async contextLoss(name, params) {
+      const src = await load(name);
+      engine.setSource(src);
+      await engine.ready();
+      engine.render(P(params));
+      const before = readCanvas();
+      const ext = canvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+      const restored = new Promise((r) => canvas.addEventListener('webglcontextrestored', r, { once: true }));
+      ext.loseContext();
+      await new Promise((r) => setTimeout(r, 50));
+      engine.render(P(params)); // darf nicht werfen
+      ext.restoreContext();
+      await restored;
+      await new Promise((r) => setTimeout(r, 0));
+      await engine.ready();
+      engine.render(P(params));
+      const after = readCanvas();
+      const thumb = await engine.renderThumbnail(null, P(params), 100);
+      return { ...diff(before.data, after.data), thumb: [thumb.width, thumb.height] };
+    },
+
+    dispose() {
+      engine.dispose();
+      engine = createEngine(canvas); // gleicher Canvas, z. B. React StrictMode
+      return 'ok';
+    },
+  };
+  window.ready = true;
+</script>
+</body>
+</html>

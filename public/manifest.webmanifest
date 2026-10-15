@@ -1,0 +1,14 @@
+{
+  "name": "Film Lab",
+  "short_name": "Film Lab",
+  "description": "Film-Looks für Kamerafotos, komplett im Browser",
+  "lang": "de",
+  "display": "standalone",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "start_url": "./",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

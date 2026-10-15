@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>RAW-Test</title></head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import { decodeRaw } from '/src/io/raw/index.ts';
+import LibRaw from 'libraw-wasm';
+
+async function fetchFile(url, name) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return new File([await r.arrayBuffer()], name ?? url.split('/').pop());
+}
+
+/** Mittelwert (Luma 0..255), Histogramm (16 Klassen) und Anteil geclippter Pixel, an einem Raster abgetastet. */
+function stats(data, width, height) {
+  const hist = new Array(16).fill(0);
+  let sum = 0, n = 0, clipped = 0, r = 0, g = 0, b = 0;
+  const step = 7;
+  for (let i = 0; i < width * height; i += step) {
+    const p = i * 4;
+    const y = 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2];
+    sum += y; n++; r += data[p]; g += data[p + 1]; b += data[p + 2];
+    hist[Math.min(15, y >> 4)]++;
+    if (data[p] === 255 || data[p + 1] === 255 || data[p + 2] === 255) clipped++;
+  }
+  return { mean: sum / n, rgbMean: [r / n, g / n, b / n], hist: hist.map((h) => +(h / n * 100).toFixed(2)), clippedPct: +(clipped / n * 100).toFixed(2) };
+}
+
+/** Box-Verkleinerung auf maxEdge und Ausgabe als PNG-Data-URL. */
+function preview(data, width, height, maxEdge) {
+  const s = Math.max(1, Math.floor(Math.max(width, height) / maxEdge));
+  const w = Math.floor(width / s), h = Math.floor(height / s);
+  const out = new ImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let r = 0, g = 0, b = 0;
+    for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) {
+      const p = ((y * s + dy) * width + x * s + dx) * 4;
+      r += data[p]; g += data[p + 1]; b += data[p + 2];
+    }
+    const q = (y * w + x) * 4, k = s * s;
+    out.data[q] = r / k; out.data[q + 1] = g / k; out.data[q + 2] = b / k; out.data[q + 3] = 255;
+  }
+  const c = document.getElementById('c');
+  c.width = w; c.height = h;
+  c.getContext('2d').putImageData(out, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+// Produktionspfad: decodeRaw
+// orientation: patcht das EXIF-Orientation-Tag (IFD0) der RAW-Kopie, um die Drehung zu prüfen.
+function patchOrientation(buf, value) {
+  const v = new DataView(buf);
+  const ifd = v.getUint32(4, true);
+  const n = v.getUint16(ifd, true);
+  for (let i = 0; i < n; i++) {
+    const p = ifd + 2 + i * 12;
+    if (v.getUint16(p, true) === 0x0112) { v.setUint16(p + 8, value, true); return true; }
+  }
+  return false;
+}
+
+window.runDecode = async (url, name, maxEdge = 1500, orientation = 0) => {
+  let file = await fetchFile(url, name);
+  if (orientation) {
+    const buf = await file.arrayBuffer();
+    if (!patchOrientation(buf, orientation)) throw new Error('Orientation-Tag nicht gefunden');
+    file = new File([buf], file.name);
+  }
+  const t0 = performance.now();
+  const img = await decodeRaw(file);
+  const ms = performance.now() - t0;
+  const px = img.pixels;
+  return {
+    ms: Math.round(ms), width: img.width, height: img.height, pxW: px.width, pxH: px.height,
+    byteLength: px.data.length, colorSpace: img.colorSpace, isRaw: img.isRaw, fileName: img.fileName, id: img.id,
+    stats: stats(px.data, px.width, px.height),
+    exif: Array.from(img.meta.exif ?? []),
+    preview: preview(px.data, px.width, px.height, maxEdge),
+    heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null,
+  };
+};
+
+// Versuchsaufbau: libraw direkt mit beliebigen Einstellungen (nur für die Abwägung der Parameter).
+window.runBench = async (url, settings, maxEdge = 1200) => {
+  const file = await fetchFile(url);
+  const raw = new LibRaw();
+  const t0 = performance.now();
+  await raw.open(new Uint8Array(await file.arrayBuffer()), settings);
+  const t1 = performance.now();
+  const meta = await raw.metadata(true);
+  const im = await raw.imageData();
+  const t2 = performance.now();
+  raw.dispose();
+  const { width, height, data } = im;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0, s = 0, d = 0; i < width * height; i++, s += 3, d += 4) { rgba[d] = data[s]; rgba[d + 1] = data[s + 1]; rgba[d + 2] = data[s + 2]; rgba[d + 3] = 255; }
+  return { openMs: Math.round(t1 - t0), dataMs: Math.round(t2 - t1), width, height, bits: im.bits, colors: im.colors, stats: stats(rgba, width, height), preview: preview(rgba, width, height, maxEdge), flip: meta.flip, mw: meta.width, mh: meta.height };
+};
+
+// Metadaten und eingebettete JPEG-Vorschau der Kamera als Referenz.
+window.runMeta = async (url) => {
+  const file = await fetchFile(url);
+  const raw = new LibRaw();
+  await raw.open(new Uint8Array(await file.arrayBuffer()), {});
+  const meta = await raw.metadata(true);
+  const th = await raw.thumbnailData();
+  raw.dispose();
+  const blob = new Blob([th.data], { type: 'image/jpeg' });
+  const bmp = await createImageBitmap(blob);
+  const c = document.getElementById('c');
+  c.width = bmp.width; c.height = bmp.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  const id = ctx.getImageData(0, 0, bmp.width, bmp.height);
+  const slim = { ...meta };
+  delete slim.color_data; delete slim.sony; delete slim.metadata_common;
+  return { meta: slim, color: { cam_mul: meta.color_data?.cam_mul, black: meta.color_data?.black, maximum: meta.color_data?.maximum }, thumb: { w: th.width, h: th.height, format: th.format, stats: stats(id.data, bmp.width, bmp.height), preview: c.toDataURL('image/png') } };
+};
+window.runBad = async () => {
+  const bytes = new Uint8Array(200000);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 2654435761) >>> 24;
+  try { await decodeRaw(new File([bytes], 'kaputt.arw')); return { rejected: false }; }
+  catch (e) { return { rejected: true, message: e.message }; }
+};
+window.harnessReady = true;
+</script>
+</body>
+</html>

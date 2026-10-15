@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Looks-Kontaktbogen</title></head>
+<body>
+<script type="module">
+  // Wendet die LUTs ohne Engine an (trilinear in JS) – nur für scripts/looks-sheet.mjs.
+  import { LOOKS } from '/src/looks/index.ts';
+
+  function applyLut(src, lut) {
+    const n = lut.size, d = lut.data, s = n - 1, out = new Uint8ClampedArray(src.length);
+    for (let p = 0; p < src.length; p += 4) {
+      const x = (src[p] / 255) * s, y = (src[p + 1] / 255) * s, z = (src[p + 2] / 255) * s;
+      const x0 = Math.min(s - 1, x | 0), y0 = Math.min(s - 1, y | 0), z0 = Math.min(s - 1, z | 0);
+      const fx = x - x0, fy = y - y0, fz = z - z0;
+      for (let c = 0; c < 3; c++) {
+        const at = (i, j, k) => d[(x0 + i + (y0 + j) * n + (z0 + k) * n * n) * 3 + c];
+        const c00 = at(0, 0, 0) + (at(1, 0, 0) - at(0, 0, 0)) * fx;
+        const c10 = at(0, 1, 0) + (at(1, 1, 0) - at(0, 1, 0)) * fx;
+        const c01 = at(0, 0, 1) + (at(1, 0, 1) - at(0, 0, 1)) * fx;
+        const c11 = at(0, 1, 1) + (at(1, 1, 1) - at(0, 1, 1)) * fx;
+        const v = (c00 + (c10 - c00) * fy) * (1 - fz) + (c01 + (c11 - c01) * fy) * fz;
+        out[p + c] = Math.round(v * 255);
+      }
+      out[p + 3] = 255;
+    }
+    return out;
+  }
+
+  // Testtafel: Grauverlauf, Farbtonverläufe in drei Helligkeiten, Hauttöne, Primärfarben.
+  function chart(w, h) {
+    const c = new OffscreenCanvas(w, h), g = c.getContext('2d');
+    const rows = 6, rh = h / rows;
+    const grad = g.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#000'); grad.addColorStop(1, '#fff');
+    g.fillStyle = grad; g.fillRect(0, 0, w, rh);
+    for (let i = 0; i < 3; i++) {
+      for (let x = 0; x < w; x++) {
+        g.fillStyle = `hsl(${(x / w) * 360} ${[100, 60, 35][i]}% ${[50, 45, 70][i]}%)`;
+        g.fillRect(x, rh * (1 + i), 1, rh);
+      }
+    }
+    const skins = ['#f3d4c0', '#e8b89a', '#d29b7a', '#b07a5a', '#8d5a3e', '#5c3a26'];
+    skins.forEach((s, i) => { g.fillStyle = s; g.fillRect((i * w) / 6, rh * 4, w / 6 + 1, rh); });
+    const prim = ['#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#3a7d2c', '#4a78c0'];
+    prim.forEach((s, i) => { g.fillStyle = s; g.fillRect((i * w) / 8, rh * 5, w / 8 + 1, rh); });
+    return c.transferToImageBitmap();
+  }
+
+  window.makeSheet = async (url, edge, cols) => {
+    let bmp;
+    if (url === 'chart') bmp = chart(edge, Math.round(edge * 0.6));
+    else {
+      const blob = await (await fetch(url)).blob();
+      const full = await createImageBitmap(blob);
+      const k = edge / Math.max(full.width, full.height);
+      bmp = await createImageBitmap(blob, { resizeWidth: Math.round(full.width * k), resizeHeight: Math.round(full.height * k), resizeQuality: 'high' });
+      full.close();
+    }
+    const w = bmp.width, h = bmp.height, label = 26;
+    const tc = new OffscreenCanvas(w, h), tg = tc.getContext('2d');
+    tg.drawImage(bmp, 0, 0);
+    const src = tg.getImageData(0, 0, w, h).data;
+    const tiles = [{ name: 'Original', px: src, ms: 0 }];
+    for (const look of LOOKS) {
+      const t0 = performance.now();
+      const lut = look.buildLut();
+      const ms = performance.now() - t0;
+      tiles.push({ name: look.name, px: applyLut(src, lut), ms });
+    }
+    const rowsN = Math.ceil(tiles.length / cols);
+    const sheet = document.createElement('canvas');
+    sheet.width = cols * w; sheet.height = rowsN * (h + label);
+    const g = sheet.getContext('2d');
+    g.fillStyle = '#202020'; g.fillRect(0, 0, sheet.width, sheet.height);
+    g.font = '18px sans-serif'; g.textBaseline = 'middle';
+    tiles.forEach((t, i) => {
+      const x = (i % cols) * w, y = Math.floor(i / cols) * (h + label);
+      g.fillStyle = '#eee'; g.fillText(t.name, x + 8, y + label / 2);
+      g.putImageData(new ImageData(t.px, w, h), x, y + label);
+    });
+    return { png: sheet.toDataURL('image/png'), times: tiles.slice(1).map((t) => [t.name, +t.ms.toFixed(1)]) };
+  };
+
+  // Kennzahlen: Grauachse und mittlere Farbe je Look.
+  window.lutStats = () => LOOKS.map((look) => {
+    const lut = look.buildLut(), n = lut.size;
+    const gray = (i) => Array.from(lut.data.slice((i + i * n + i * n * n) * 3, (i + i * n + i * n * n) * 3 + 3)).map((v) => +v.toFixed(3));
+    return { name: look.name, black: gray(0), mid: gray(Math.round((n - 1) * 0.46)), white: gray(n - 1) };
+  });
+  window.ready = true;
+</script>
+</body>
+</html>
