@@ -1,0 +1,8 @@
+node_modules
+dist
+*.local
+# Private Fotos des Nutzers – das Repo wird öffentlich
+testbilder/
+*:Zone.Identifier
+# Ausgaben von Browser-Tests
+test-output/
