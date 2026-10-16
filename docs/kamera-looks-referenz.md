@@ -652,6 +652,7 @@ Eingangsraum von Classic/Natural ist offenbar bereits ein Rec.709-ähnlicher Vid
 Rezepte sind Einstellungslisten (Fakten) und werden hier mit Quelle wiedergegeben. Quelle für fast alle: **Fuji X Weekly** (Ritchie Roesch, <https://fujixweekly.com/>); die Seiten habe ich per HTML ausgelesen, die Werte
 stehen wörtlich dort. „High ISO NR“ steht in der Spalte **NR**. Alle Rezepte nutzen ISO Auto (meist bis 6400) und Dynamic-Range-Priority aus (außer wo DR-P genannt). **Sensor** = Generation, für die der Autor das Rezept schrieb
 (X-Trans IV = z. B. X-Pro3, X100V, X-T4; X-Trans V = X-T5, X-H2, X-H2S, X-S20, X100VI, X-T50, X-E5; GFX = Bayer).
+Rezepte desselben Autors für Ricoh-GR-Kameras (mit eigenen Filmbezügen): `ricoh-rezepte.md`.
 
 ### 4.1 Farbrezepte
 
