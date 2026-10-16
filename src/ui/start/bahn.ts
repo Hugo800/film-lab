@@ -1,7 +1,7 @@
-// Kreisbahn des Look-Rads: Die Schachteln liegen auf einem Bogen am rechten Rand. Die mittlere (aktive) ragt am
-// weitesten nach links, die übrigen weichen nach oben und unten zum Rand zurück und werden kleiner und blasser.
+// Kreisbahn des Look-Rads: Die Schachteln liegen auf einem Bogen am rechten Rand der Kachel. Die mittlere (aktive)
+// ragt am weitesten nach links, die übrigen weichen nach oben und unten zum Rand zurück und werden kleiner und blasser.
 
-/** Ab hier (|d|) ist eine Schachtel ganz ausgeblendet. */
+/** Ab hier (|d|) ist eine Schachtel ganz ausgeblendet; ab |d| = 3 blendet sie aus. */
 export const SICHTBAR = 5;
 
 export interface Geometrie {
@@ -15,37 +15,33 @@ export interface Geometrie {
   /** Mitte der aktiven Schachtel. */
   xMitte: number;
   cy: number;
-  /** Ab hier (|d|) ist eine Schachtel ganz durchsichtig; ab |d| = 3 blendet sie aus. */
-  leer: number;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Bahn für einen Abschnitt der Größe w×h: am Handy kleinere Schachteln und ein engerer Bogen. */
+/** Bahn in einer Kachel der Größe w×h: hochkant (Handy, 4:5), flach (Handy quer, 2:1) oder breit (3:2). */
 export function geometrie(w: number, h: number): Geometrie {
-  const flach = h < 520; // Handy quer
-  const handy = !flach && w < 640;
-  const desktop = !flach && !handy;
-  const boxH = flach ? clamp(h * 0.2, 56, 90) : handy ? clamp(h * 0.088, 58, 84) : clamp(h * 0.135, 90, 168);
+  const hoch = w < h;
+  const flach = w > h * 1.8;
+  // Mit der Kachel wachsend, aber nie kleiner als 74 × 118 px: So bleibt der Name der mittleren Schachtel ≥ 9 px groß.
+  const boxH = clamp(h * (flach ? 0.25 : 0.17), 74, 120);
   const boxW = boxH * 1.6;
-  // Am Desktop enger gestaffelt, damit ±3 oben und unten im Bild bleiben.
-  const gap = boxH * (desktop ? 0.14 : 0.16);
-  // Wie weit die Schachtel bei d = ±4 gegenüber der Mitte nach rechts zurückweicht: am Desktop ein deutlicher Halbkreis.
-  const bulge = boxW * (handy ? 0.7 : flach ? 0.5 : 1.5);
-  const rand = handy ? 10 : flach ? 16 : clamp(w * 0.035, 24, 72);
+  const gap = boxH * 0.14;
+  // Wie weit die Schachtel bei d = ±4 gegenüber der Mitte nach rechts zurückweicht: in der breiten Kachel ein deutlicher
+  // Halbkreis, hochkant flacher, sonst bleibt links zu wenig Platz für Name und Knopf.
+  const bulge = boxW * (hoch ? 0.65 : flach ? 1 : 1.4);
+  const rand = hoch ? 10 : clamp(w * 0.035, 16, 36);
   const y4 = hub(4, boxH, gap);
   const r = (y4 * y4 + bulge * bulge) / (2 * bulge);
-  // Kleines Handy: die äußersten (±4) reichen oben bis an den Markenschalter, deshalb schon dort ganz ausgeblendet.
-  const leer = handy && h < 720 ? 4 : SICHTBAR;
-  // Schachteln bis |d| = voll ragen rechts nicht aus dem Bild; am Desktop verschwinden die äußersten (±4) nach rechts,
-  // auf kleinen Handys (dort ±4 ganz ausgeblendet) ebenso – so rückt der Bogen nach rechts, weg vom Markenschalter.
-  const voll = desktop || leer <= 4 ? 3 : 4;
+  // Schachteln bis |d| = voll ragen rechts nicht aus der Kachel; hochkant dürfen es ±3 knapp (sie liegen dort ohnehin
+  // oben bzw. unten am Rand), so rückt der Bogen vom Text weg.
+  const voll = hoch ? 2 : 3;
   let aus = boxW / 2;
   for (let d = 1; d <= voll; d++) aus = Math.max(aus, rueckzug(hub(d, boxH, gap), r) + (scaleAt(d) * boxW) / 2);
   const xMitte = w - rand - aus;
-  // Kleines Handy: Bogenmitte höher, damit der untere Bogen nicht neben Überschrift und Knopf liegt.
-  const cy = flach ? h * 0.54 : handy ? h * (h < 720 ? 0.4 : 0.45) : h * 0.5;
-  return { boxW, boxH, gap, r, xMitte, cy, leer };
+  // Hochkant: Mitte höher, damit unten links Platz für Name und Knopf bleibt (der untere Bogen weicht dort schon zurück).
+  const cy = h * (hoch ? 0.34 : 0.5);
+  return { boxW, boxH, gap, r, xMitte, cy };
 }
 
 /** Waagerechter Rückzug der Bahn bei senkrechtem Abstand dy von der Mitte. */
@@ -82,7 +78,7 @@ export function bahnPunkt(d: number, g: Geometrie): Punkt {
     x: g.xMitte + g.r * (1 - Math.cos(winkel)),
     y: g.cy + dy,
     scale: scaleAt(d),
-    opacity: clamp((g.leer - Math.abs(d)) / (g.leer - 3), 0, 1),
+    opacity: clamp((SICHTBAR - Math.abs(d)) / (SICHTBAR - 3), 0, 1),
     dunkel: Math.min(0.5, 0.13 * Math.abs(d)),
     rot: (-winkel * 180 * 0.25) / Math.PI,
   };

@@ -44,10 +44,12 @@ describe('Filmschachteln', () => {
 });
 
 describe('Bahn des Look-Rads', () => {
-  for (const [w, h] of [[393, 852], [375, 667], [852, 393], [1440, 900], [1920, 1080]]) {
-    it(`${w}×${h}: Mitte ragt am weitesten nach links, nach oben und unten weicht der Bogen zum rechten Rand zurück`, () => {
+  // Kachelgrößen: Handy hochkant (393 bzw. 375 breit), Handy quer, PC 1280×720, 1440×900 und 1920×1080.
+  for (const [w, h] of [[353, 441], [335, 395], [594, 297], [552, 368], [822, 548], [1024, 683]]) {
+    it(`Kachel ${w}×${h}: Mitte ragt am weitesten nach links, nach oben und unten weicht der Bogen zum rechten Rand zurück`, () => {
       const g = geometrie(w, h);
       const p = (d: number) => bahnPunkt(d, g);
+      const halb = (d: number) => (g.boxH * p(d).scale) / 2;
       expect(p(0).y).toBeCloseTo(g.cy);
       for (let d = 0.5; d <= 4; d += 0.5) {
         expect(p(d).x).toBeGreaterThan(p(d - 0.5).x);
@@ -64,17 +66,23 @@ describe('Bahn des Look-Rads', () => {
       // Nahe Schachteln sind deckend (blasser nur durch Abdunkeln), erst am Rand blenden sie aus.
       for (let d = 0; d <= 3; d++) expect(p(d).opacity).toBe(1);
       expect(p(3).dunkel).toBeGreaterThan(p(1).dunkel);
-      // ±3 liegen ganz im Bild (am Desktop mit mindestens 6 % Rand oben und unten).
-      const rand = w >= 640 && h >= 520 ? h * 0.06 : 0;
-      expect(p(-3).y - (g.boxH * p(3).scale) / 2).toBeGreaterThanOrEqual(rand - (h < 520 ? g.boxH : 0));
-      expect(p(3).y + (g.boxH * p(3).scale) / 2).toBeLessThanOrEqual(h - rand + (h < 520 ? g.boxH : 0));
-      expect(p(3).x + (g.boxW * p(3).scale) / 2).toBeLessThanOrEqual(w);
-      // Die Mitte liegt ganz im Bild, die Schachtel ragt rechts nicht hinaus.
-      expect(p(0).x + g.boxW / 2).toBeLessThanOrEqual(w);
-      expect(p(0).x - g.boxW / 2).toBeGreaterThan(w / 3);
+      expect(p(4).opacity).toBe(0.5);
       expect(p(5).opacity).toBe(0);
-      // Kleines Handy: ±4 schon ganz ausgeblendet (sonst ragen sie oben an den Markenschalter), sonst halb.
-      expect(p(4).opacity).toBe(w < 640 && h >= 520 && h < 720 ? 0 : 0.5);
+      // Mitte und ±1 liegen ganz in der Kachel; in der breiten Kachel (3:2) auch ±2.
+      const voll = w / h > 1.4 && w / h < 1.8 ? 2 : 1;
+      expect(p(-voll).y - halb(voll)).toBeGreaterThanOrEqual(0);
+      expect(p(voll).y + halb(voll)).toBeLessThanOrEqual(h);
+      // Bis ±2 ragt rechts nichts aus der Kachel; die Mitte liegt in der rechten Hälfte, links bleibt Platz für den Text.
+      for (let d = 0; d <= 2; d++) expect(p(d).x + (g.boxW * p(d).scale) / 2).toBeLessThanOrEqual(w);
+      expect(p(0).x - g.boxW / 2).toBeGreaterThan(w / 2);
+      // Nie kleiner als 118 px breit: Der Name der mittleren Schachtel (längstes Wort mit 7,6 cqw) bleibt ≥ 9 px.
+      expect(g.boxW).toBeGreaterThanOrEqual(118);
     });
   }
+
+  it('richtet sich nach der Kachel, nicht nach dem Fenster: größere Kachel, größere Schachteln (bis 120 px hoch)', () => {
+    expect(geometrie(1024, 683).boxH).toBeGreaterThan(geometrie(822, 548).boxH);
+    expect(geometrie(822, 548).boxH).toBeGreaterThan(geometrie(552, 368).boxH);
+    expect(geometrie(1600, 1067).boxH).toBe(120);
+  });
 });

@@ -16,8 +16,18 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       workbox: {
-        // jpg: Beispielfotos der Startseite (public/beispiele, rund 1,4 MB), damit sie auch offline vollständig ist.
+        // jpg: Beispielfotos der Startseite (public/beispiele), damit sie auch offline vollständig ist.
         globPatterns: ['**/*.{js,css,html,svg,png,jpg,wasm,webmanifest}'],
+        // Ausnahme: die großen Editor-Fassungen (beispiele/gross, je bis ~2,5 MB) erst beim Öffnen im Editor laden.
+        globIgnores: ['**/node_modules/**/*', 'beispiele/gross/**'],
+        // Danach aus dem Cache, damit ein schon geöffnetes Beispielfoto auch offline in voller Größe kommt.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/beispiele/gross/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'beispiele-gross', expiration: { maxEntries: 8 } },
+          },
+        ],
         // libraw.wasm hat 1,4 MB, der Rest bleibt darunter.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',

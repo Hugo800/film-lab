@@ -6,10 +6,10 @@ import { builtinEntries, CATEGORY_LABELS, type LookEntry } from '../lookRegistry
 import { beispielInEditor } from './beispielLaden';
 import { bahnPunkt, geometrie, hub, SICHTBAR, type Geometrie } from './bahn';
 import { schachtelFuer } from './filmschachteln';
-import { useInView, useRendered, WerkstattContext } from './hooks';
+import { useFoto, useInView, useRendered, WerkstattContext } from './hooks';
 import { Schachtel } from './Schachtel';
-import { FotoWahl } from './teile';
-import { BEISPIELE, beispielUrl, GROSS, miniUrl, type BeispielId } from './werkstatt';
+import { BREITE, FotoWahl, Kopf } from './teile';
+import { angaben, beispielUrl, GROSS, miniUrl, type BeispielId, type Foto } from './werkstatt';
 
 const MARKEN: LookCategory[] = ['fujifilm', 'leica', 'kodak'];
 /** Mit diesem Look öffnet das Rad je Marke: mittendrin (Index ≥ 4), damit der Bogen nach oben und unten gefüllt ist. */
@@ -36,17 +36,13 @@ function fensterEdge(boxH: number) {
   return clamp(Math.ceil(px / 64) * 64, 128, 512);
 }
 
-/** Breite des Textblocks unten links: bis vor die aktive Schachtel; am Handy etwas mehr, dort weicht der Bogen unten schon zurück. */
-function textBreite(w: number, g: Geometrie) {
-  return w < 640 ? Math.max(g.xMitte - g.boxW / 2 - 8, w - 88) : Math.min(g.xMitte - g.boxW / 2 - 8, 640);
-}
-
 function RadBox({
   entry,
   d,
   g,
   links,
   oben,
+  hoehe,
   photo,
   edge,
   enabled,
@@ -61,7 +57,9 @@ function RadBox({
   g: Geometrie;
   links: number;
   oben: number;
-  photo: BeispielId;
+  /** Höhe der Kachel: Schachteln ganz außerhalb werden nicht gerechnet. */
+  hoehe: number;
+  photo: Foto;
   edge: number;
   enabled: boolean;
   /** Abschnitt schon einmal in Sicht: erst dann die kleinen Fotos als Platzhalter laden. */
@@ -72,10 +70,11 @@ function RadBox({
   onPick: () => void;
 }) {
   const sichtbar = Math.abs(d) < SICHTBAR;
-  // Gerechnet wird nur, was man sieht: ab |d| = g.leer ist die Schachtel ganz durchsichtig (kleines Handy: schon ±4).
-  const { url } = useRendered(photo, entry.id, edge, 2, enabled && Math.abs(d) < g.leer);
   const p = bahnPunkt(d, g);
-  const pos = BEISPIELE.find((b) => b.id === photo)!.pos;
+  // Gerechnet wird nur, was man sieht: nicht ganz durchsichtig und wenigstens zum Teil in der Kachel.
+  const halb = (p.scale * g.boxH) / 2;
+  const { url } = useRendered(photo, entry.id, edge, 2, enabled && sichtbar && p.y + halb > 0 && p.y - halb < hoehe);
+  const { pos } = angaben(photo);
   return (
     <div
       id={`rad-${entry.id}`}
@@ -106,12 +105,14 @@ function RadBox({
 }
 
 /**
- * Vollbild-Vorschau aller Looks: Hintergrund = Beispielfoto mit dem aktiven Look, rechts ein gebogenes Rad aus
- * Filmschachteln. Drehen per Mausrad (nur mit dem Zeiger über dem Abschnitt; erst einrasten, an den Enden frei),
- * Wischen auf dem Bogen, Antippen, Pfeiltasten.
+ * Kachel mit allen Looks: Hintergrund = Beispielfoto mit dem aktiven Look, rechts ein gebogenes Rad aus
+ * Filmschachteln; Markenschalter darüber, Fotowahl darunter. Drehen per Mausrad (nur mit dem Zeiger über der Kachel;
+ * erst ganz ins Bild einrasten, an den Enden frei), Wischen auf dem Bogen, Antippen, Pfeiltasten.
  */
 export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: BeispielId) => void }) {
   const werkstatt = useContext(WerkstattContext);
+  // Das gewählte Foto in der Fassung dieses Bildschirms (beim Drehen wie ein Fotowechsel).
+  const foto = useFoto(photo);
   const entries = useMemo(builtinEntries, []);
   const total = entries.filter((e) => MARKEN.includes(e.category as LookCategory)).length;
   const [marke, setMarke] = useState<LookCategory>('fujifilm');
@@ -127,6 +128,10 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   const [sectionRef, near] = useInView<HTMLElement>('200px 0px', false);
   const [gesehen, setGesehen] = useState(false);
   if (near && !gesehen) setGesehen(true);
+  // Kachel; zum Einrasten außerdem die Bühne (Schalter, Kachel, Fotowahl) und der ganze Inhalt samt Überschrift.
+  const kachelRef = useRef<HTMLDivElement>(null);
+  const buehneRef = useRef<HTMLDivElement>(null);
+  const inhaltRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const g = useMemo(() => (size.w ? geometrie(size.w, size.h) : null), [size]);
   const edge = g ? fensterEdge(g.boxH) : 0;
@@ -143,14 +148,14 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   lage.current = { n, marke, g };
 
   useLayoutEffect(() => {
-    const el = sectionRef.current;
+    const el = kachelRef.current;
     if (!el) return;
     const measure = () => setSize((s) => (s.w === el.clientWidth && s.h === el.clientHeight ? s : { w: el.clientWidth, h: el.clientHeight }));
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [sectionRef]);
+  }, []);
 
   const laufen = useCallback(() => {
     setRuhe(false);
@@ -204,17 +209,26 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
     setMarke(m);
   };
 
-  // Mausrad: Nur mit dem Zeiger über dem Abschnitt (das Ereignis kommt nur dann hier an). Erst einrasten, dann drehen;
-  // am ersten/letzten Look in der jeweiligen Richtung freigeben. Listener selbst, weil React wheel passiv anmeldet.
+  // Mausrad: Nur mit dem Zeiger über der Kachel (das Ereignis kommt nur dann hier an). Ist sie nicht ganz im Bild, erst
+  // einrasten, dann drehen; am ersten/letzten Look in der jeweiligen Richtung freigeben. Listener selbst, weil React
+  // wheel passiv anmeldet.
   useEffect(() => {
-    const sec = sectionRef.current;
-    const main = sec?.closest('main');
-    if (!sec || !main) return;
+    const kachel = kachelRef.current;
+    const main = kachel?.closest('main');
+    if (!kachel || !main) return;
+    /** Scrollstand, bei dem die Kachel mittig ganz im Bild ist – samt Überschrift bzw. Bedienung, soweit sie hineinpassen. */
+    const rastStelle = () => {
+      const m = main.getBoundingClientRect();
+      const el = [inhaltRef.current, buehneRef.current].find((x) => x && x.offsetHeight <= m.height - 16) ?? kachel;
+      const r = el.getBoundingClientRect();
+      return clamp(Math.round(main.scrollTop + r.top - m.top - (m.height - r.height) / 2), 0, main.scrollHeight - main.clientHeight);
+    };
     let acc = 0;
     let letzterSchritt = -1e9;
     let letztes = -1e9;
     let letzterBetrag = 0;
     let rastet = 0; // Ende des Einrastens (Frist); 0 = rastet nicht
+    let ziel = 0; // Scrollstand, auf den gerade eingerastet wird
     let ruhigBis = 0; // Nachlauf des Trackpads nach dem Einrasten schlucken (feste Frist, wird nicht verlängert)
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // Zoom-Geste
@@ -222,27 +236,33 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
       const now = e.timeStamp;
       const pause = now - letztes;
       letztes = now;
-      const dy = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? sec.clientHeight : 1);
+      const dy = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? kachel.clientHeight : 1);
       if (dy === 0 || Math.abs(e.deltaX) > Math.abs(dy)) return;
       // Neue Geste statt Nachlauf: nach einer Pause oder wenn die Ausschläge wieder größer werden (Schwung klingt ab).
       const neu = pause >= 200 || Math.abs(dy) > letzterBetrag * 1.3 + 2;
       letzterBetrag = Math.abs(dy);
       const dir = Math.sign(dy);
-      const off = sec.getBoundingClientRect().top - main.getBoundingClientRect().top;
-      const bündig = Math.abs(off) < 2;
       if (rastet) {
-        if (!bündig && now < rastet) return void e.preventDefault();
+        if (Math.abs(main.scrollTop - ziel) >= 2 && now < rastet) return void e.preventDefault();
         rastet = 0;
         ruhigBis = now + SCHLUCKEN_MS;
       }
-      if (!bündig) {
-        // Nur auf den Abschnitt zu einrasten; wer von ihm wegscrollt, scrollt normal.
-        if (!((dir > 0 && off > 0) || (dir < 0 && off < 0))) return;
-        e.preventDefault();
-        acc = 0;
-        rastet = now + 900;
-        main.scrollTo({ top: main.scrollTop + off, behavior: reduziert() ? 'auto' : 'smooth' });
-        return;
+      const m = main.getBoundingClientRect();
+      const k = kachel.getBoundingClientRect();
+      if (k.top < m.top - 1 || k.bottom > m.bottom + 1) {
+        const z = rastStelle();
+        const off = z - main.scrollTop;
+        // Passt die Kachel nicht ganz ins Bild, dreht sie an der Raststelle trotzdem (sonst hinge das Rad fest).
+        if (Math.abs(off) >= 2) {
+          // Nur auf die Kachel zu einrasten; wer von ihr wegscrollt, scrollt normal.
+          if (Math.sign(off) !== dir) return;
+          e.preventDefault();
+          acc = 0;
+          ziel = z;
+          rastet = now + 900;
+          main.scrollTo({ top: z, behavior: reduziert() ? 'auto' : 'smooth' });
+          return;
+        }
       }
       const i = target.current;
       const ende = dir < 0 ? i <= 0 : i >= lage.current.n - 1;
@@ -265,9 +285,9 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
         drehen(i + dir);
       }
     };
-    sec.addEventListener('wheel', onWheel, { passive: false });
-    return () => sec.removeEventListener('wheel', onWheel);
-  }, [sectionRef, drehen]);
+    kachel.addEventListener('wheel', onWheel, { passive: false });
+    return () => kachel.removeEventListener('wheel', onWheel);
+  }, [drehen]);
 
   // Ziehen auf dem Bogen (Finger oder Maus): senkrecht = drehen, Schwung beim Loslassen. Antippen wählt per click.
   const schritt = g ? g.boxH * 0.94 + g.gap : 80;
@@ -327,7 +347,7 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
     document.getElementById(`rad-marke-${m}`)?.focus();
   };
 
-  const tryIt = () => entry && void beispielInEditor(photo, entry.id);
+  const tryIt = () => entry && void beispielInEditor(foto, entry.id);
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = target.current;
     const next = { ArrowUp: i - 1, ArrowLeft: i - 1, ArrowDown: i + 1, ArrowRight: i + 1, PageUp: i - 4, PageDown: i + 4, Home: 0, End: n - 1 }[e.key];
@@ -342,31 +362,31 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
 
   // Hintergrund: der aktive Look in Bildschirmgröße, erst wenn das Rad ruht (veraltete Aufträge fallen weg).
   // Zwei Ebenen: das neue Bild blendet über dem alten ein; ein anderes Foto ersetzt alles erst, wenn es gerechnet ist.
-  const [layers, setLayers] = useState<{ photo: BeispielId; items: { key: string; url: string }[] }>({ photo, items: [] });
+  const [layers, setLayers] = useState<{ photo: Foto; items: { key: string; url: string }[] }>({ photo: foto, items: [] });
   const [bgFehler, setBgFehler] = useState(false);
   // „Erneut versuchen“: zählt hoch, stößt Hintergrund und Sichtfenster neu an (die Werkstatt vergisst Fehlschläge).
   const [versuch, setVersuch] = useState(0);
   const lookId = entry?.id;
-  const bgKey = `${photo}|${lookId}`;
+  const bgKey = `${foto}|${lookId}`;
   useEffect(() => {
     if (!near || !ruhe || !werkstatt || !lookId) return;
     let live = true;
     let job: ReturnType<typeof werkstatt.request> | null = null;
     const nachbarn: ReturnType<typeof werkstatt.request>[] = [];
     const t = window.setTimeout(() => {
-      job = werkstatt.request(photo, lookId, GROSS, 3);
+      job = werkstatt.request(foto, lookId, GROSS, 3);
       job.promise.then(
         (url) => {
           if (!live) return;
           setBgFehler(false);
           setLayers((l) => {
-            const item = { key: `${photo}|${lookId}`, url };
-            const keep = l.photo === photo ? l.items.filter((x) => x.url !== url).slice(-1) : [];
-            return { photo, items: [...keep, item] };
+            const item = { key: `${foto}|${lookId}`, url };
+            const keep = l.photo === foto ? l.items.filter((x) => x.url !== url).slice(-1) : [];
+            return { photo: foto, items: [...keep, item] };
           });
           // Danach die Nachbarn vorab (wartet, bis niemand scrollt): das nächste Drehen zeigt sofort das Bild.
           const i = liste.findIndex((x) => x.id === lookId);
-          for (const nb of [liste[i + 1], liste[i - 1]]) if (nb) nachbarn.push(werkstatt.request(photo, nb.id, GROSS, 0));
+          for (const nb of [liste[i + 1], liste[i - 1]]) if (nb) nachbarn.push(werkstatt.request(foto, nb.id, GROSS, 0));
           for (const j of nachbarn) j.promise.catch(() => {});
         },
         () => live && setBgFehler(true),
@@ -378,10 +398,10 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
       job?.cancel();
       nachbarn.forEach((j) => j.cancel());
     };
-  }, [near, ruhe, werkstatt, photo, lookId, liste, versuch]);
+  }, [near, ruhe, werkstatt, foto, lookId, liste, versuch]);
 
-  const shown = layers.items.length > 0 ? layers.photo : photo;
-  const beispiel = BEISPIELE.find((b) => b.id === shown)!;
+  const shown = layers.items.length > 0 ? layers.photo : foto;
+  const beispiel = angaben(shown);
   const fertig = layers.items.at(-1)?.key === bgKey;
   const [originalKaputt, setOriginalKaputt] = useState(false);
 
@@ -415,82 +435,19 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   const unten = g ? Math.max(0, Math.round(size.h - g.cy - reichweite)) : 0;
 
   return (
-    <section
-      ref={sectionRef}
-      id="alle-looks"
-      aria-labelledby="rad-titel"
-      className="relative isolate h-full min-h-[320px] overflow-hidden bg-ink select-none"
-    >
-      {/* Hintergrund */}
-      <div
-        className="no-callout absolute inset-0 touch-pan-y"
-        onPointerDown={peekAn}
-        onPointerMove={peekBewegt}
-        onPointerUp={peekAus}
-        onPointerCancel={peekAus}
-        onPointerLeave={peekAus}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        {gesehen && !originalKaputt ? (
-          <img
-            key={shown}
-            src={beispielUrl(shown)}
-            alt=""
-            decoding="async"
-            draggable={false}
-            onError={() => setOriginalKaputt(true)}
-            className="absolute inset-0 size-full object-cover"
-            style={{ objectPosition: beispiel.pos }}
-          />
-        ) : (
-          !originalKaputt && <span className="platzhalter absolute inset-0" />
-        )}
-        {layers.items.map((l) => (
-          <img
-            key={l.url}
-            src={l.url}
-            alt={l.key === bgKey && entry ? `Beispielfoto ${beispiel.label} mit ${entry.name}` : ''}
-            draggable={false}
-            className="rad-hg ueberblenden absolute inset-0 size-full object-cover"
-            style={{ objectPosition: beispiel.pos }}
-          />
-        ))}
-        {gesehen && !originalKaputt && (
-          <img
-            src={beispielUrl(shown)}
-            alt=""
-            draggable={false}
-            className={`absolute inset-0 size-full object-cover transition-opacity duration-200 motion-reduce:transition-none ${peek ? 'opacity-100' : 'opacity-0'}`}
-            style={{ objectPosition: beispiel.pos }}
-          />
-        )}
-      </div>
+    <section ref={sectionRef} id="alle-looks" aria-labelledby="rad-titel" className="px-5 py-16 sm:py-24">
+      <div ref={inhaltRef}>
+        <Kopf id="rad-titel" eyebrow={`${total} Looks · live gerechnet`} title="Alle Looks im Überblick.">
+          <span className="pointer-coarse:hidden">Mausrad oder ↑ ↓ dreht das Rad, ein Klick holt eine Schachtel nach vorn. Bild gedrückt halten zeigt das Original.</span>
+          <span className="hidden pointer-coarse:inline">Auf den Schachteln wischen dreht das Rad. Bild gedrückt halten zeigt das Original.</span>
+        </Kopf>
 
-      {/* Lesbarkeit: Verlauf oben (Schalter), unten links (Text) und rechts hinter dem Bogen. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/60 to-transparent" />
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black/90 via-black/55 via-40% to-transparent max-sm:via-black/65" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_45%_at_0%_100%,rgb(0_0_0/0.45),transparent)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_50%_75%_at_100%_50%,rgb(0_0_0/0.55),transparent)] max-sm:bg-[radial-gradient(ellipse_70%_60%_at_100%_45%,rgb(0_0_0/0.5),transparent)]"
-      />
-
-      {peek && (
-        <span className="pointer-events-none absolute top-1/2 left-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3.5 py-1 text-sm font-medium text-white backdrop-blur-md">
-          Original
-        </span>
-      )}
-
-      {/* Oben: Marke */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 pr-4 pl-[max(1rem,env(safe-area-inset-left))] sm:pr-8 sm:pl-[max(2rem,env(safe-area-inset-left))] pt-[max(1rem,env(safe-area-inset-top))] sm:pt-[max(1.75rem,env(safe-area-inset-top))] [@media(max-height:520px)]:pt-3">
-        <div className="pointer-events-auto min-w-0">
-          <p className="mb-2.5 pl-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-accent [@media(max-height:520px)]:hidden">
-            {total} Looks · live gerechnet
-          </p>
-          <div role="tablist" aria-label="Marke" className="flex rounded-full border border-white/12 bg-black/45 p-1 backdrop-blur-md">
+        {/* Bühne: Marke über, Fotowahl unter der Kachel; am Handy quer (wenig Höhe) beide in einer Zeile darüber. */}
+        <div
+          ref={buehneRef}
+          className={`mt-6 sm:mt-10 ${BREITE} [@media(max-height:520px)]:grid [@media(max-height:520px)]:w-[min(100%,calc((100svh-6rem)*2))] [@media(max-height:520px)]:grid-cols-[auto_auto] [@media(max-height:520px)]:items-center [@media(max-height:520px)]:justify-between`}
+        >
+          <div role="tablist" aria-label="Marke" className="mx-auto flex w-full rounded-full border border-line bg-panel p-1 sm:w-fit [@media(max-height:520px)]:mx-0">
             {MARKEN.map((m) => {
               const on = m === marke;
               const count = entries.filter((e) => e.category === m).length;
@@ -505,119 +462,190 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
                   tabIndex={on ? 0 : -1}
                   onClick={() => markeWechseln(m)}
                   onKeyDown={markenTaste}
-                  className={`flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition sm:min-h-11 sm:px-5 sm:text-[15px] ${
-                    on ? 'bg-white/14 text-white ring-1 ring-accent/60' : 'text-white/70 hover:bg-white/8 hover:text-white'
+                  className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition sm:min-h-11 sm:flex-none sm:px-5 sm:text-[15px] ${
+                    on ? 'bg-raised text-fg ring-1 ring-accent/60' : 'text-dim hover:bg-raised/60 hover:text-fg'
                   }`}
                 >
                   {CATEGORY_LABELS[m]}
-                  <span className={`text-xs tabular-nums ${on ? 'text-accent' : 'text-white/50'}`}>{count}</span>
+                  <span className={`text-xs tabular-nums ${on ? 'text-accent' : 'text-dim/70'}`}>{count}</span>
                 </button>
               );
             })}
           </div>
+
+          {/* Kachel: festes Format (Handy 4:5, quer 2:1, sonst 3:2), höhenbegrenzt, nie an die Fenstergröße gekoppelt. */}
+          <div
+            ref={kachelRef}
+            id="rad-kachel"
+            className="@container relative isolate mt-4 aspect-[4/5] max-h-[calc(100svh-17rem)] w-full overflow-hidden rounded-2xl bg-raised shadow-[0_30px_80px_-30px_rgb(0_0_0/0.9)] ring-1 ring-white/5 select-none sm:aspect-[3/2] sm:max-h-none [@media(max-height:520px)]:col-span-2 [@media(max-height:520px)]:row-start-2 [@media(max-height:520px)]:mt-3 [@media(max-height:520px)]:aspect-[2/1]"
+          >
+            {/* Hintergrund */}
+            <div
+              className="no-callout absolute inset-0 touch-pan-y"
+              onPointerDown={peekAn}
+              onPointerMove={peekBewegt}
+              onPointerUp={peekAus}
+              onPointerCancel={peekAus}
+              onPointerLeave={peekAus}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {gesehen && !originalKaputt ? (
+                <img
+                  key={shown}
+                  src={beispielUrl(shown)}
+                  alt=""
+                  decoding="async"
+                  draggable={false}
+                  onError={() => setOriginalKaputt(true)}
+                  className="absolute inset-0 size-full object-cover"
+                  style={{ objectPosition: beispiel.pos }}
+                />
+              ) : (
+                !originalKaputt && <span className="platzhalter absolute inset-0" />
+              )}
+              {layers.items.map((l) => (
+                <img
+                  key={l.url}
+                  src={l.url}
+                  alt={l.key === bgKey && entry ? `Beispielfoto ${beispiel.label} mit ${entry.name}` : ''}
+                  draggable={false}
+                  className="rad-hg ueberblenden absolute inset-0 size-full object-cover"
+                  style={{ objectPosition: beispiel.pos }}
+                />
+              ))}
+              {gesehen && !originalKaputt && (
+                <img
+                  src={beispielUrl(shown)}
+                  alt=""
+                  draggable={false}
+                  className={`absolute inset-0 size-full object-cover transition-opacity duration-200 motion-reduce:transition-none ${peek ? 'opacity-100' : 'opacity-0'}`}
+                  style={{ objectPosition: beispiel.pos }}
+                />
+              )}
+            </div>
+
+            {/* Lesbarkeit: Verlauf unten links (Text) und rechts hinter dem Bogen. */}
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black/90 via-black/65 via-40% to-transparent" />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_70%_at_0%_100%,rgb(0_0_0/0.6),transparent)]"
+            />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_50%_75%_at_100%_50%,rgb(0_0_0/0.55),transparent)] max-sm:bg-[radial-gradient(ellipse_70%_60%_at_100%_45%,rgb(0_0_0/0.5),transparent)]"
+            />
+
+            {peek && (
+              <span className="pointer-events-none absolute top-1/2 left-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3.5 py-1 text-sm font-medium text-white backdrop-blur-md">
+                Original
+              </span>
+            )}
+
+            {/* Unten links: der aktive Look, bis kurz vor die aktive Schachtel (sie ragt am weitesten nach links). */}
+            {entry && (
+              <div
+                className="pointer-events-none absolute bottom-0 left-0 z-20 p-4 pr-0 sm:p-7 sm:pr-0 [@media(max-height:520px)]:p-4 [@media(max-height:520px)]:pr-0"
+                style={{ width: g ? Math.min(g.xMitte - g.boxW / 2 - 12, 600) : undefined }}
+              >
+                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75 [text-shadow:0_1px_12px_rgb(0_0_0/0.6)] sm:text-xs">
+                  {CATEGORY_LABELS[marke]}
+                  <span className="tabular-nums text-white/55">
+                    {index + 1} / {n}
+                  </span>
+                  {near && !fertig && !bgFehler && <Spinner className="size-3 border-white/60" />}
+                  {bgFehler && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBgFehler(false);
+                        setVersuch((v) => v + 1);
+                      }}
+                      className="pointer-events-auto inline-flex min-h-8 items-center gap-1.5 rounded-full bg-black/55 px-3 text-xs font-medium tracking-normal normal-case text-white backdrop-blur-md transition hover:bg-black/70"
+                    >
+                      <TriangleAlert size={13} className="text-accent" aria-hidden />
+                      Live-Vorschau nicht verfügbar
+                      <span className="inline-flex items-center gap-1 text-accent">
+                        <RotateCcw size={12} aria-hidden />
+                        Erneut versuchen
+                      </span>
+                    </button>
+                  )}
+                </p>
+                <p
+                  key={entry.id}
+                  className="ueberblenden mt-1.5 text-[length:clamp(24px,5.4cqw,54px)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance break-words text-white [text-shadow:0_1px_18px_rgb(0_0_0/0.45)]"
+                >
+                  {entry.name}
+                </p>
+                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-white/75 [text-shadow:0_1px_18px_rgb(0_0_0/0.45)] sm:text-[15px] [@media(max-height:520px)]:line-clamp-1">
+                  <span className="sm:hidden">{kurz(entry.description)}.</span>
+                  <span className="max-sm:hidden">{entry.description.replace(/\s*Rezept: .*$/, '')}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={tryIt}
+                  className="pointer-events-auto group mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-semibold whitespace-nowrap text-ink shadow-[0_10px_30px_-10px_rgb(0_0_0/0.8)] transition hover:bg-accent sm:mt-5 sm:gap-2 sm:px-5 sm:text-[15px] [@media(max-height:520px)]:mt-3"
+                >
+                  Diesen Look ausprobieren
+                  <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
+                </button>
+              </div>
+            )}
+
+            {/* Rechts: das Rad. Wo der Bogen oben und unten aus der Kachel läuft, blenden die Schachteln weich aus statt hart
+                abzubrechen; die Maske liegt auf der ganzen Kachel, sonst schnitte sie die Schatten links am Rad gerade ab. */}
+            {g && (
+              <div className="pointer-events-none absolute inset-0 z-10 [mask-image:linear-gradient(to_bottom,transparent,black_2.5rem,black_calc(100%-2.5rem),transparent)]">
+                <div
+                  id="look-rad"
+                  role="listbox"
+                  tabIndex={0}
+                  aria-label={`${CATEGORY_LABELS[marke]}-Looks`}
+                  aria-activedescendant={entry ? `rad-${entry.id}` : undefined}
+                  data-pos={pos.toFixed(3)}
+                  onKeyDown={onKey}
+                  onPointerDown={onDown}
+                  onPointerMove={onMove}
+                  onPointerUp={onUp}
+                  onPointerCancel={onUp}
+                  className="no-callout pointer-events-auto absolute right-0 touch-none outline-none"
+                  style={{ left: links, top: oben, bottom: unten }}
+                >
+                  {liste.map((e, i) => (
+                    <RadBox
+                      key={`${marke}-${e.id}-${versuch}`}
+                      entry={e}
+                      d={i - pos}
+                      g={g}
+                      links={links}
+                      oben={oben}
+                      hoehe={size.h}
+                      photo={foto}
+                      edge={edge}
+                      enabled={near}
+                      gesehen={gesehen}
+                      aktiv={i === index}
+                      index={i}
+                      n={n}
+                      onPick={() => pick(i)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="sr-only" aria-live="polite">
+              {entry ? `${entry.name}, ${index + 1} von ${n}` : ''}
+            </p>
+          </div>
+
+          <FotoWahl
+            value={photo}
+            onChange={onPhoto}
+            className="mt-4 justify-center [@media(max-height:520px)]:col-start-2 [@media(max-height:520px)]:row-start-1 [@media(max-height:520px)]:mt-0"
+          />
         </div>
       </div>
-
-      {/* Unten links: der aktive Look */}
-      {entry && (
-        <div
-          className="pointer-events-none absolute bottom-0 left-0 z-20 pr-5 pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-8 sm:pl-[max(2rem,env(safe-area-inset-left))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-[max(2.5rem,env(safe-area-inset-bottom))] [@media(max-height:520px)]:pb-3"
-          style={{ width: g ? textBreite(size.w, g) : undefined }}
-        >
-          <h2 id="rad-titel" className="sr-only">
-            Alle Looks im Überblick
-          </h2>
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-white/75">
-            {CATEGORY_LABELS[marke]}
-            <span className="tabular-nums text-white/45">
-              {index + 1} / {n}
-            </span>
-            {near && !fertig && !bgFehler && <Spinner className="size-3 border-white/60" />}
-            {bgFehler && (
-              <button
-                type="button"
-                onClick={() => {
-                  setBgFehler(false);
-                  setVersuch((v) => v + 1);
-                }}
-                className="pointer-events-auto inline-flex min-h-8 items-center gap-1.5 rounded-full bg-black/55 px-3 text-xs font-medium tracking-normal normal-case text-white backdrop-blur-md transition hover:bg-black/70"
-              >
-                <TriangleAlert size={13} className="text-accent" aria-hidden />
-                Live-Vorschau nicht verfügbar
-                <span className="inline-flex items-center gap-1 text-accent">
-                  <RotateCcw size={12} aria-hidden />
-                  Erneut versuchen
-                </span>
-              </button>
-            )}
-          </p>
-          <p key={entry.id} className="ueberblenden mt-1.5 text-[34px] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-white [text-shadow:0_1px_18px_rgb(0_0_0/0.45)] sm:text-5xl lg:text-6xl [@media(max-height:520px)]:text-[28px]">
-            {entry.name}
-          </p>
-          <p className="mt-2 line-clamp-2 max-w-md text-[14px] leading-relaxed text-white/75 [text-shadow:0_1px_18px_rgb(0_0_0/0.45)] sm:line-clamp-3 sm:text-base [@media(max-height:520px)]:line-clamp-1">
-            <span className="sm:hidden">{kurz(entry.description)}.</span>
-            <span className="max-sm:hidden">{entry.description.replace(/\s*Rezept: .*$/, '')}</span>
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3 sm:mt-6 [@media(max-height:520px)]:mt-2">
-            <button
-              type="button"
-              onClick={tryIt}
-              className="pointer-events-auto group inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold whitespace-nowrap sm:px-5 sm:text-[15px] text-ink shadow-[0_10px_30px_-10px_rgb(0_0_0/0.8)] transition hover:bg-accent"
-            >
-              Diesen Look ausprobieren
-              <ArrowRight size={17} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
-            </button>
-            <FotoWahl value={photo} onChange={onPhoto} className="pointer-events-auto" />
-          </div>
-          <p className="mt-4 text-xs text-white/50 max-sm:hidden [@media(max-height:520px)]:hidden">
-            <span className="pointer-coarse:hidden">Mausrad oder ↑ ↓ dreht das Rad · Bild gedrückt halten zeigt das Original</span>
-            <span className="hidden pointer-coarse:inline">Auf dem Bogen wischen · Bild gedrückt halten zeigt das Original</span>
-          </p>
-        </div>
-      )}
-
-      {/* Rechts: das Rad */}
-      {g && (
-        <div
-          id="look-rad"
-          role="listbox"
-          tabIndex={0}
-          aria-label={`${CATEGORY_LABELS[marke]}-Looks`}
-          aria-activedescendant={entry ? `rad-${entry.id}` : undefined}
-          data-pos={pos.toFixed(3)}
-          onKeyDown={onKey}
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerCancel={onUp}
-          className="no-callout absolute right-0 z-10 touch-none outline-none"
-          // Querformat mit Notch: der Bogen hält Abstand zur rechten Aussparung.
-          style={{ left: links, top: oben, bottom: unten, transform: 'translateX(calc(-1 * env(safe-area-inset-right, 0px)))' }}
-        >
-          {liste.map((e, i) => (
-            <RadBox
-              key={`${marke}-${e.id}-${versuch}`}
-              entry={e}
-              d={i - pos}
-              g={g}
-              links={links}
-              oben={oben}
-              photo={photo}
-              edge={edge}
-              enabled={near}
-              gesehen={gesehen}
-              aktiv={i === index}
-              index={i}
-              n={n}
-              onPick={() => pick(i)}
-            />
-          ))}
-        </div>
-      )}
-
-      <p className="sr-only" aria-live="polite">
-        {entry ? `${entry.name}, ${index + 1} von ${n}` : ''}
-      </p>
     </section>
   );
 }

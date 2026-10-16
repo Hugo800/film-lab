@@ -2,9 +2,9 @@ import { useContext, useEffect, useRef, useState, type KeyboardEvent, type Point
 import { ArrowRight, ChevronsLeftRight, TriangleAlert } from 'lucide-react';
 import { Spinner } from '../controls';
 import { builtinEntries, CATEGORY_LABELS } from '../lookRegistry';
-import { WerkstattContext, useInView, useRendered } from './hooks';
-import { FotoWahl, Kopf } from './teile';
-import { BEISPIELE, beispielUrl, GROSS, type BeispielId } from './werkstatt';
+import { WerkstattContext, useFoto, useInView, useRendered } from './hooks';
+import { BREITE, FotoWahl, Kopf } from './teile';
+import { angaben, beispielUrl, GROSS, type BeispielId, type Foto } from './werkstatt';
 
 /** Kuratierte Auswahl für den Vergleich: id → kurzer Name auf dem Chip. */
 const VERGLEICH_LOOKS: { id: string; label: string }[] = [
@@ -19,10 +19,8 @@ const VERGLEICH_LOOKS: { id: string; label: string }[] = [
 ];
 
 const CHIP_EDGE = 96;
-// Breite der Bühne aus der Höhe (ab sm): Kopf (~10 rem), Abstände und zwei Chip-Reihen (~12 rem) bleiben im Bild.
-const BREITE = 'mx-auto w-full max-w-5xl sm:w-[min(100%,max(28rem,calc((100svh-22rem)*1.5)))]';
 
-function LookChip({ photo, id, label, on, enabled, onPick }: { photo: BeispielId; id: string; label: string; on: boolean; enabled: boolean; onPick: () => void }) {
+function LookChip({ photo, id, label, on, enabled, onPick }: { photo: Foto; id: string; label: string; on: boolean; enabled: boolean; onPick: () => void }) {
   const { url, error } = useRendered(photo, id, CHIP_EDGE, 1, enabled);
   return (
     <button
@@ -61,21 +59,23 @@ export function Vergleich({
   const [dragging, setDragging] = useState(false);
   const [touched, setTouched] = useState(false);
   const down = useRef<{ x: number; moved: boolean; id: number } | null>(null);
-  const { url, error } = useRendered(photo, look, GROSS, 3, near);
-  const [layers, setLayers] = useState<{ photo: BeispielId; urls: string[] }>({ photo, urls: [] });
-  const [failed, setFailed] = useState<BeispielId | null>(null);
+  // Das gewählte Foto in der Fassung dieses Bildschirms (beim Drehen wie ein Fotowechsel).
+  const foto = useFoto(photo);
+  const { url, error } = useRendered(foto, look, GROSS, 3, near);
+  const [layers, setLayers] = useState<{ photo: Foto; urls: string[] }>({ photo: foto, urls: [] });
+  const [failed, setFailed] = useState<Foto | null>(null);
   const entry = builtinEntries().find((e) => e.id === look);
 
   // Zwei Ebenen: das neue Bild blendet über dem alten ein. Ein anderes Foto ersetzt alles erst, wenn es gerechnet ist –
   // bis dahin bleibt das alte Foto samt Look stehen.
   useEffect(() => {
     if (!url) return;
-    setLayers((l) => ({ photo, urls: l.photo === photo ? [...l.urls.filter((u) => u !== url).slice(-1), url] : [url] }));
-  }, [url, photo]);
-  const shown = layers.urls.length > 0 ? layers.photo : photo;
+    setLayers((l) => ({ photo: foto, urls: l.photo === foto ? [...l.urls.filter((u) => u !== url).slice(-1), url] : [url] }));
+  }, [url, foto]);
+  const shown = layers.urls.length > 0 ? layers.photo : foto;
   const urls = layers.urls;
   const ready = urls.length > 0;
-  const beispiel = BEISPIELE.find((b) => b.id === shown)!;
+  const beispiel = angaben(shown);
   const broken = failed === shown;
 
   // Liegt das gewählte Bild vor, weitere Looks dieses Fotos vorab rechnen: der Wechsel ist dann sofort da.
@@ -85,10 +85,10 @@ export function Vergleich({
     const i = VERGLEICH_LOOKS.findIndex((l) => l.id === look);
     const rest = [...VERGLEICH_LOOKS.slice(i + 1), ...VERGLEICH_LOOKS.slice(0, Math.max(0, i))];
     const next = matchMedia('(pointer: coarse)').matches ? rest.slice(0, 3) : rest;
-    const jobs = next.map((l) => werkstatt.request(photo, l.id, GROSS, 0));
+    const jobs = next.map((l) => werkstatt.request(foto, l.id, GROSS, 0));
     for (const j of jobs) j.promise.catch(() => {});
     return () => jobs.forEach((j) => j.cancel());
-  }, [url, werkstatt, photo, look]);
+  }, [url, werkstatt, foto, look]);
 
   // Einmaliger Schwenk, sobald der erste Look da und der Rahmen gut im Bild ist: zeigt, dass sich der Teiler ziehen lässt.
   const [stageRef, inSight] = useInView<HTMLDivElement>('0px 0px -25% 0px');
@@ -276,7 +276,7 @@ export function Vergleich({
 
           <div className="hide-scrollbar -mx-5 mt-4 flex snap-x scroll-px-5 gap-2 overflow-x-auto px-5 sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0">
             {VERGLEICH_LOOKS.map((l) => (
-              <LookChip key={l.id} photo={photo} id={l.id} label={l.label} on={l.id === look} enabled={near} onPick={() => onLook(l.id)} />
+              <LookChip key={l.id} photo={foto} id={l.id} label={l.label} on={l.id === look} enabled={near} onPick={() => onLook(l.id)} />
             ))}
           </div>
         </div>

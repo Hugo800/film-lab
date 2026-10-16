@@ -1,6 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { useInView } from './hooks';
-import { BEISPIELE, miniUrl, type BeispielId } from './werkstatt';
+import { useFassung, useInView } from './hooks';
+import { BEISPIELE, foto, miniUrl, type BeispielId } from './werkstatt';
+
+// Breite der Bühnen von Vergleich und Look-Rad aus der Höhe (ab sm): Kopf (~10 rem), Abstände und die Bedienung über
+// und unter dem Bild (~12 rem) bleiben neben einem Bild im Format 3:2 im Bild.
+export const BREITE = 'mx-auto w-full max-w-5xl sm:w-[min(100%,max(28rem,calc((100svh-22rem)*1.5)))]';
 
 /** Abschnittskopf: kleine Zeile in Akzentfarbe, große Überschrift, Einleitung; zentriert oder linksbündig. */
 export function Kopf({
@@ -42,24 +46,26 @@ export function Einblenden({ children, className = '', delay = 0 }: { children: 
 export function FotoWahl({ value, onChange, className = '' }: { value: BeispielId; onChange: (id: BeispielId) => void; className?: string }) {
   // Kleine Vorschauen (je rund 6 KB), erst kurz vor Sicht: loading="lazy" lädt in Chrome schon weit unterhalb des ersten Bildschirms.
   const [ref, near] = useInView<HTMLDivElement>('200px 0px');
+  const fassung = useFassung();
   return (
     <div ref={ref} role="group" aria-label="Beispielfoto" className={`flex items-center gap-2 ${className}`}>
       {BEISPIELE.map((b) => {
         const on = b.id === value;
+        const { label } = b[fassung];
         return (
           <button
             key={b.id}
             type="button"
             aria-pressed={on}
-            aria-label={`Beispielfoto ${b.label}`}
-            title={b.label}
+            aria-label={`Beispielfoto ${label}`}
+            title={label}
             onClick={() => onChange(b.id)}
             // Fokus: weiß und weiter außen, damit er sich von der Auswahl (Ring in Akzentfarbe) abhebt; nicht gedämpft.
             className={`relative h-11 w-13 overflow-hidden rounded-lg bg-raised transition focus-visible:opacity-100 focus-visible:outline-white focus-visible:outline-offset-4 sm:w-14 ${
               on ? 'ring-2 ring-accent ring-offset-2 ring-offset-ink' : 'opacity-60 hover:opacity-100'
             }`}
           >
-            {near && <img src={miniUrl(b.id)} alt="" decoding="async" className="size-full object-cover" />}
+            {near && <img src={miniUrl(foto(b.id, fassung))} alt="" decoding="async" className="size-full object-cover" />}
           </button>
         );
       })}

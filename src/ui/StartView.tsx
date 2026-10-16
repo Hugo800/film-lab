@@ -5,7 +5,7 @@ import { TRADEMARK_NOTE } from './lookRegistry';
 import { useStore } from './store';
 import { beispielInEditor } from './start/beispielLaden';
 import { Funktionen } from './start/Funktionen';
-import { WerkstattContext } from './start/hooks';
+import { useFoto, WerkstattContext } from './start/hooks';
 import { LookRad } from './start/LookRad';
 import { RezeptBeispiel } from './start/RezeptBeispiel';
 import { Einblenden } from './start/teile';
@@ -22,7 +22,9 @@ export function StartView({ onPick }: { onPick: () => void }) {
   const [photo, setPhoto] = useState<BeispielId>('klippen');
   // Kräftiger Look zuerst: der Unterschied soll auf den ersten Blick sichtbar sein.
   const [look, setLook] = useState('kodak-kodachrome-64');
-  const tryIt = () => void beispielInEditor(photo, look);
+  // Öffnet die Fassung, die man gerade sieht (hochkant oder quer).
+  const foto = useFoto(photo);
+  const tryIt = () => void beispielInEditor(foto, look);
   const toLooks = () =>
     document.getElementById('looks-buehne')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 

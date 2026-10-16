@@ -7,28 +7,48 @@ import type { Engine, SourceImage } from '../../types';
 import { defaultsFor, lutFor } from '../lookRegistry';
 import { closeSource } from '../session';
 
-export type BeispielId = 'klippen' | 'skyline' | 'garten' | 'hund';
+export type BeispielId = 'klippen' | 'sonnenuntergang' | 'nachts' | 'garten';
+/** Fassung der Beispielfotos: hoch für hochkante Rahmen (Handy hochkant), sonst quer (siehe useFassung in hooks.ts). */
+export type Fassung = 'quer' | 'hoch';
+/** Ein Beispielfoto in einer Fassung, z. B. `klippen-hoch`: Dateiname und Schlüssel der Werkstatt. */
+export type Foto = `${BeispielId}-${Fassung}`;
 
-export interface Beispiel {
-  id: BeispielId;
+interface Angaben {
   label: string;
   /** Bildausschnitt bei object-cover (CSS object-position), damit das Motiv in festen Rahmen passt. */
   pos: string;
 }
 
+export interface Beispiel {
+  id: BeispielId;
+  quer: Angaben;
+  hoch: Angaben;
+}
+
 export const BEISPIELE: Beispiel[] = [
-  { id: 'klippen', label: 'Klippen', pos: '50% 50%' },
-  { id: 'skyline', label: 'Nachts', pos: '10% 50%' },
-  { id: 'garten', label: 'Garten', pos: '42% 50%' },
-  { id: 'hund', label: 'Hund', pos: '45% 35%' },
+  { id: 'klippen', quer: { label: 'Klippen', pos: '50% 50%' }, hoch: { label: 'Klippen', pos: '50% 70%' } },
+  { id: 'sonnenuntergang', quer: { label: 'Sonnenuntergang', pos: '50% 50%' }, hoch: { label: 'Sonnenuntergang', pos: '50% 40%' } },
+  { id: 'nachts', quer: { label: 'Nachts', pos: '30% 50%' }, hoch: { label: 'Nachts', pos: '50% 70%' } },
+  { id: 'garten', quer: { label: 'Garten', pos: '42% 50%' }, hoch: { label: 'Straße', pos: '50% 70%' } },
 ];
 
-export const beispielUrl = (id: BeispielId) => `${import.meta.env.BASE_URL}beispiele/${id}.jpg`;
-/** Kleine Vorschau für die Foto-Wahl (168×132, schon zugeschnitten), statt des vollen Fotos. */
-export const miniUrl = (id: BeispielId) => `${import.meta.env.BASE_URL}beispiele/mini/${id}.jpg`;
+export const foto = (id: BeispielId, fassung: Fassung): Foto => `${id}-${fassung}`;
 
-/** Lange Kante der Beispielfotos (siehe scripts/beispiele-erzeugen.mjs). */
-export const GROSS = 1600;
+/** Name und Bildausschnitt eines Fotos in seiner Fassung. */
+export function angaben(f: Foto): Angaben {
+  const [id, fassung] = f.split('-') as [BeispielId, Fassung];
+  return BEISPIELE.find((b) => b.id === id)![fassung];
+}
+
+/** Seitenfassung (lange Kante GROSS), vorab im Cache der App. */
+export const beispielUrl = (f: Foto) => `${import.meta.env.BASE_URL}beispiele/${f}.jpg`;
+/** Kleine Vorschau für die Foto-Wahl (168×132, schon zugeschnitten), statt des vollen Fotos. */
+export const miniUrl = (f: Foto) => `${import.meta.env.BASE_URL}beispiele/mini/${f}.jpg`;
+/** Editor-Fassung (lange Kante bis 4000 px) für Lupe und Export; nur beim Öffnen im Editor geladen, nicht im Precache. */
+export const grossUrl = (f: Foto) => `${import.meta.env.BASE_URL}beispiele/gross/${f}.jpg`;
+
+/** Lange Kante der Seitenfassung (siehe scripts/beispiele-erzeugen.mjs). */
+export const GROSS = 2048;
 
 export interface Auftrag {
   promise: Promise<string>;
@@ -38,7 +58,7 @@ export interface Auftrag {
 
 interface Job {
   key: string;
-  photo: BeispielId;
+  photo: Foto;
   look: string;
   edge: number;
   prio: number;
@@ -62,8 +82,10 @@ async function toUrl(bmp: ImageBitmap): Promise<string> {
 
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
-/** Höchstens so viele große Bilder (≈ 340 KB je Stück) im Cache; ältere werden freigegeben (zuletzt benutzt bleibt). */
+/** Höchstens so viele große Bilder (≈ 0,3–0,6 MB je Stück) im Cache; ältere werden freigegeben (zuletzt benutzt bleibt). */
 const MAX_GROSS = 24;
+/** Höchstens so viele dekodierte Beispielfotos (je ≈ 10 MB bei 2048 px) gleichzeitig, also eine Fassung. */
+const MAX_QUELLEN = 4;
 
 // Vorab-Aufträge (Priorität 0) blockieren den Hauptthread; sie warten, bis eine Weile weder gescrollt noch getippt wurde.
 const RUHE_MS = 300;
@@ -76,8 +98,8 @@ if (typeof window !== 'undefined') {
 export function createWerkstatt() {
   let canvas: HTMLCanvasElement | null = null;
   let engine: Engine | null = null;
-  let current: BeispielId | null = null;
-  let sources = new Map<BeispielId, Promise<SourceImage>>();
+  let current: Foto | null = null;
+  let sources = new Map<Foto, Promise<SourceImage>>();
   let done = new Map<string, string>();
   let jobs = new Map<string, Job>();
   let queue: Job[] = [];
@@ -85,16 +107,28 @@ export function createWerkstatt() {
   let epoch = 0;
   let seq = 0;
 
-  function source(id: BeispielId): Promise<SourceImage> {
+  function source(id: Foto): Promise<SourceImage> {
     let p = sources.get(id);
-    if (!p) {
-      p = (async () => {
-        const res = await fetch(beispielUrl(id));
-        if (!res.ok) throw new Error(`Beispielfoto nicht erreichbar (${res.status})`);
-        return loadFile(new File([await res.blob()], `${id}.jpg`, { type: 'image/jpeg' }));
-      })();
+    if (p) {
+      // Zuletzt benutzt ans Ende (für das Freigeben unten).
+      sources.delete(id);
       sources.set(id, p);
-      p.catch(() => sources.delete(id));
+      return p;
+    }
+    p = (async () => {
+      const res = await fetch(beispielUrl(id));
+      if (!res.ok) throw new Error(`Beispielfoto nicht erreichbar (${res.status})`);
+      return loadFile(new File([await res.blob()], `${id}.jpg`, { type: 'image/jpeg' }));
+    })();
+    sources.set(id, p);
+    p.catch(() => sources.delete(id));
+    // Höchstens MAX_QUELLEN dekodierte Fotos halten: nach dem Drehen fällt die andere Fassung weg. Das Foto in der
+    // Engine bleibt (sie zeichnet weiter daraus).
+    for (const [alt, q] of sources) {
+      if (sources.size <= MAX_QUELLEN) break;
+      if (alt === id || alt === current) continue;
+      sources.delete(alt);
+      q.then(closeSource, () => {});
     }
     return p;
   }
@@ -159,7 +193,7 @@ export function createWerkstatt() {
   }
 
   /** Foto `photo` mit den Standardwerten von Look `look`, lange Kante `edge`, als Object-URL (JPEG). */
-  function request(photo: BeispielId, look: string, edge: number, prio: number): Auftrag {
+  function request(photo: Foto, look: string, edge: number, prio: number): Auftrag {
     const key = `${photo}|${look}|${edge}`;
     const hit = done.get(key);
     if (hit) {

@@ -1,6 +1,7 @@
 // Ende-zu-Ende-Test der gebauten App: npm run test:browser
 // Baut nach test-output/e2e-build, liefert statisch aus (Port TEST_PORT, Vorgabe 5190) und bedient die
-// Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): 2 JPEGs + 1 ARW laden,
+// Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): Startseite (Beispielfotos quer bzw.
+// hochkant, am Handy auch nach dem Drehen), 2 JPEGs + 1 ARW laden,
 // Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und alle (PC: ZIP, iPhone-Kennung: share() mit Einzeldateien). Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
 // Der Server setzt die Header aus deploy/security-headers.conf; jeder CSP-Verstoß (Seite oder Worker) macht den Test rot.
 import { createServer } from 'node:http';
@@ -342,6 +343,24 @@ async function run(mode, viewport) {
       await waitFor(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 0), 120_000),
       'Startseite: Vorher/Nachher am Beispielfoto live gerechnet',
     );
+    // Fassung nach Ausrichtung: Handy hochkant lädt die Hochkantfotos, der PC die Querfotos (Seitenfassung und Minis).
+    const fassung = touch ? 'hoch' : 'quer';
+    const beispielFotos = requested.filter((u) => /\/beispiele\/(mini\/)?[a-z]+-(quer|hoch)\.jpg$/.test(u)).map((u) => u.replace(/^.*\/beispiele\//, ''));
+    ok(beispielFotos.includes(`klippen-${fassung}.jpg`) && beispielFotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `Startseite: ${fassung}-Fassung geladen (${beispielFotos.join(', ')})`);
+    /** Vergleich zeigt Foto `name` (Original) und ein gerechnetes Bild im passenden Format. */
+    const vergleichZeigt = (name, hoch) =>
+      waitFor(([n, h]) => {
+        const imgs = [...document.querySelectorAll('#looks img')];
+        return imgs.some((i) => i.src.endsWith(`/beispiele/${n}.jpg`) && i.complete && i.naturalWidth > 0) &&
+          imgs.some((i) => i.src.startsWith('blob:') && Math.max(i.naturalWidth, i.naturalHeight) > 1000 && i.naturalHeight > i.naturalWidth === h);
+      }, 120_000, [name, hoch]);
+    if (touch) {
+      // Drehen: im Querformat live die quer-Fassung, wieder hochkant die hoch-Fassung.
+      await page.setViewport({ ...viewport, width: viewport.height, height: viewport.width });
+      ok(await vergleichZeigt('klippen-quer', false), 'Startseite: nach dem Drehen ins Querformat die quer-Fassung');
+      await page.setViewport(viewport);
+      ok(await vergleichZeigt('klippen-hoch', true), 'Startseite: wieder hochkant die hoch-Fassung');
+    }
     // Look-Rad: Hintergrund und Sichtfenster der Filmschachteln mit der Engine gerechnet; Pfeiltaste dreht.
     await page.evaluate(() => document.getElementById('alle-looks')?.scrollIntoView());
     ok(
@@ -349,6 +368,8 @@ async function run(mode, viewport) {
         [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].some((i) => i.complete && i.naturalWidth > 0), 300_000),
       'Startseite: Look-Rad mit Hintergrund und Filmschachteln live gerechnet',
     );
+    const kachel = await page.$eval('#rad-kachel', (k) => ({ w: Math.round(k.offsetWidth), h: Math.round(k.offsetHeight), fw: innerWidth, fh: innerHeight }));
+    ok(kachel.w < kachel.fw && kachel.h <= kachel.fh * 0.75, `Startseite: Look-Rad als Kachel ${kachel.w}×${kachel.h}, nicht bildschirmfüllend (${kachel.fw}×${kachel.fh})`);
     const radVorher = await page.$eval('#look-rad', (r) => r.getAttribute('aria-activedescendant'));
     await page.focus('#look-rad');
     await page.keyboard.press('ArrowDown');

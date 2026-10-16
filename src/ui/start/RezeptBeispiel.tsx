@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { ClipboardPaste, ScrollText } from 'lucide-react';
 import { Spinner } from '../controls';
-import { useInView, useRendered } from './hooks';
+import { useFoto, useInView, useRendered } from './hooks';
 import { BEISPIEL_LOOK, BEISPIEL_REZEPT } from './rezept';
 import { Einblenden, Kopf } from './teile';
-import { BEISPIELE, beispielUrl } from './werkstatt';
+import { angaben, beispielUrl, GROSS } from './werkstatt';
 
 const FOTO = 'garten';
-const EDGE = 1200;
 /** Am Handy so viele Rezeptzeilen sofort, der Rest aufklappbar. */
 const KURZ = 6;
 
 export function RezeptBeispiel() {
   const [ref, near] = useInView<HTMLElement>('300px 0px');
-  const { url, error } = useRendered(FOTO, BEISPIEL_LOOK, EDGE, 2, near);
+  const foto = useFoto(FOTO);
+  // In voller Größe der Seitenfassung: ein Hochkantfoto (9:16) im 4:5-Rahmen am Handy braucht die ganze Breite.
+  const { url, error } = useRendered(foto, BEISPIEL_LOOK, GROSS, 2, near);
   const [held, setHeld] = useState(false);
   const timer = useRef(0);
   const start = useRef<{ x: number; y: number } | null>(null);
-  const pos = BEISPIELE.find((b) => b.id === FOTO)!.pos;
+  const { label, pos } = angaben(foto);
   const [title, ...rows] = BEISPIEL_REZEPT.split('\n');
 
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -68,7 +69,7 @@ export function RezeptBeispiel() {
       <div className="mx-auto max-w-6xl">
         <Kopf id="rezept-titel" eyebrow="Rezepte" title="Vom Rezept zum Bild." align="left">
           Fuji-Rezepte sind Listen von Kameraeinstellungen. Film Lab liest sie wie eine Fujifilm – hier Kodak Portra 400 von Fuji X
-          Weekly, angewendet auf ein Foto aus der a6000.
+          Weekly, angewendet auf ein Beispielfoto.
         </Kopf>
 
         <div className="mt-10 grid gap-6 sm:mt-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-stretch lg:gap-10">
@@ -107,9 +108,9 @@ export function RezeptBeispiel() {
             >
               {url ? (
                 <>
-                  <img src={url} alt="Beispielfoto Garten mit dem Rezept Kodak Portra 400" draggable={false} className="ueberblenden absolute inset-0 size-full object-cover" style={{ objectPosition: pos }} />
+                  <img src={url} alt={`Beispielfoto ${label} mit dem Rezept Kodak Portra 400`} draggable={false} className="ueberblenden absolute inset-0 size-full object-cover" style={{ objectPosition: pos }} />
                   <img
-                    src={beispielUrl(FOTO)}
+                    src={beispielUrl(foto)}
                     alt=""
                     decoding="async"
                     draggable={false}

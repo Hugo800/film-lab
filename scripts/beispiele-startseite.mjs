@@ -1,7 +1,8 @@
 // Startseite prüfen: node scripts/beispiele-startseite.mjs [393x852 1440x900 …]  (Port TEST_PORT, Vorgabe 5190)
 // Je Fenstergröße Bildschirmfotos (erster Bildschirm, Abschnitte, ganze Seite) nach test-output/startseite/ und
 // Prüfungen: kein waagerechter Überlauf, keine Engine vor dem Scrollen, Vergleich/Kacheln live gerechnet,
-// Teiler ziehen und per Tastatur, Look- und Fotowechsel; bei der ersten Größe zusätzlich Beispielfoto → Editor.
+// Teiler ziehen und per Tastatur, Look- und Fotowechsel, Fassung der Fotos (hochkant/quer); bei der ersten Größe
+// zusätzlich Beispielfoto → Editor (lädt die große Fassung aus beispiele/gross/).
 import { mkdirSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
 
@@ -29,20 +30,22 @@ const ok = (cond, msg) => {
   return cond;
 };
 
-/** Zustand des Look-Rads: aktiver Index, Anzahl, stetige Lage, Abstand Abschnitt ↔ Oberkante von <main>, Scrollstand. */
+/** Zustand des Look-Rads: aktiver Index, Anzahl, stetige Lage, Kachel ganz im Bild, Überschrift im Bild, Scrollstand. */
 const radZustand = (page) =>
   page.evaluate(() => {
     const rad = document.getElementById('look-rad');
     const opts = [...rad.querySelectorAll('[role=option]')];
-    const sec = document.getElementById('alle-looks');
     const main = document.querySelector('main');
+    const m = main.getBoundingClientRect();
+    const k = document.getElementById('rad-kachel').getBoundingClientRect();
     const id = rad.getAttribute('aria-activedescendant');
     return {
       i: opts.findIndex((o) => o.id === id),
       n: opts.length,
       name: document.getElementById(id)?.getAttribute('aria-label'),
       pos: Number(rad.dataset.pos),
-      top: Math.round(sec.getBoundingClientRect().top - main.getBoundingClientRect().top),
+      ganz: k.top >= m.top - 1 && k.bottom <= m.bottom + 1,
+      titel: document.getElementById('rad-titel').getBoundingClientRect().top >= m.top - 1,
       scroll: Math.round(main.scrollTop),
     };
   });
@@ -54,16 +57,35 @@ const radBox = (page, i) =>
     const r = o.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: o.offsetHeight };
   }, i);
+/** Rechteck der Look-Kachel im Fenster. */
+const kachelRect = (page) =>
+  page.evaluate(() => {
+    const r = document.getElementById('rad-kachel').getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
 /** Hintergrund zeigt den aktiven Look (gerechnet, geladen). */
 const radBildFertig = () => [...document.querySelectorAll('#alle-looks img.rad-hg')].some((i) => i.alt && i.complete && i.naturalWidth > 0 && i.src.startsWith('blob:'));
 const scrollMainTo = (page, top) => page.evaluate((t) => (document.querySelector('main').scrollTop = t), top);
-const sectionTop = (page) => page.evaluate(() => document.getElementById('alle-looks').offsetTop);
 
-/** Abschnitt bündig an den Bildschirm (ein Wisch-Schwung kann nachlaufen). */
+/**
+ * Kachel so ins Bild wie beim Einrasten: mittig, samt Überschrift bzw. Bedienung, soweit sie hineinpassen (ein
+ * Wisch-Schwung kann nachlaufen, deshalb zweimal). Gibt den Scrollstand zurück.
+ */
 const ausrichten = async (page) => {
-  await page.evaluate(() => document.getElementById('alle-looks').scrollIntoView());
+  const mitte = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      const kachel = document.getElementById('rad-kachel');
+      const buehne = kachel.parentElement;
+      const m = main.getBoundingClientRect();
+      const el = [buehne.parentElement, buehne].find((x) => x.offsetHeight <= m.height - 16) ?? kachel;
+      const r = el.getBoundingClientRect();
+      main.scrollTop += Math.round(r.top - m.top - (m.height - r.height) / 2);
+      return Math.round(main.scrollTop);
+    });
+  await mitte();
   await sleep(300);
-  await page.evaluate(() => document.getElementById('alle-looks').scrollIntoView());
+  return mitte();
 };
 
 async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
@@ -72,29 +94,62 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   const W = viewport.width;
   await page.evaluate(() => document.getElementById('alle-looks').scrollIntoView());
   ok(await wait(radBildFertig, 300_000), `${name}: Look-Rad: Hintergrund live gerechnet`);
-  ok(await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 7, 300_000),
+  ok(await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000),
     `${name}: Look-Rad: Sichtfenster der Schachteln gerechnet`);
+  await ausrichten(page);
   const s0 = await radZustand(page);
-  ok(s0.top === 0 && s0.n === 20, `${name}: Look-Rad bildschirmfüllend, Fujifilm mit ${s0.n} Schachteln (${s0.name})`);
-  const fill = await page.evaluate(() => {
-    const r = document.getElementById('alle-looks').getBoundingClientRect();
-    return Math.round(r.height) === innerHeight && Math.round(r.width) === innerWidth;
+  ok(s0.ganz && s0.n === 20, `${name}: Look-Kachel ganz im Bild, Fujifilm mit ${s0.n} Schachteln (${s0.name})`);
+  // Kachel statt Vollbild: festes Format, höhenbegrenzt, mit Überschrift im Bild; Breite wie der Vergleich bzw. die Spalte.
+  const masse = await page.evaluate(() => {
+    const k = document.getElementById('rad-kachel').getBoundingClientRect();
+    const kicker = document.getElementById('rad-titel').previousElementSibling.getBoundingClientRect();
+    const v = document.querySelector('#looks .cursor-ew-resize, #looks .cursor-grabbing').getBoundingClientRect();
+    return { w: Math.round(k.width), h: Math.round(k.height), mitKopf: Math.round(k.bottom - kicker.top), vergleich: Math.round(v.width) };
   });
-  ok(fill, `${name}: Look-Rad füllt den Bildschirm`);
-  // Schachteln: Namen nicht abgeschnitten, nahe Schachteln deckend (blasser nur durch Abdunkeln, kein Glas).
+  const format = masse.w / masse.h;
+  const flach = H <= 520;
+  const formatOk = flach ? Math.abs(format - 2) < 0.02 : W < 640 ? format >= 0.79 && format <= 0.9 && masse.w === W - 40 : Math.abs(format - 1.5) < 0.02 && masse.w === masse.vergleich;
+  ok(formatOk && masse.h <= H - 80 && (flach || masse.mitKopf <= H),
+    `${name}: Kachel ${masse.w}×${masse.h} (${format.toFixed(2)}), nicht bildschirmfüllend${flach ? '' : `, mit Überschrift ${masse.mitKopf} px ≤ ${H}`}`);
+  // Schachteln: Namen nicht abgeschnitten, nahe Schachteln deckend (blasser nur durch Abdunkeln, kein Glas), Name der
+  // mittleren Schachtel mindestens 9 px.
   const karton = await page.evaluate(() => {
     const boxes = [...document.querySelectorAll('#look-rad .rad-box')].filter((b) => b.style.display !== 'none');
     const pos = Number(document.getElementById('look-rad').dataset.pos);
     return {
       zuLang: boxes.map((b) => b.querySelector('.schachtel-name')).filter((n) => n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
       durchsichtig: boxes.filter((b) => Math.abs(Number(b.dataset.i) - pos) <= 3 && getComputedStyle(b).opacity !== '1').length,
+      namePx: parseFloat(getComputedStyle(document.querySelector('#look-rad [aria-selected=true] .schachtel-name')).fontSize),
     };
   });
-  ok(karton.zuLang.length === 0 && karton.durchsichtig === 0, `${name}: Namen passen auf die Schachteln, nahe Schachteln deckend ${JSON.stringify(karton)}`);
-  // Bogen: mittlere Schachtel ragt am weitesten nach links, Nachbarn weichen nach rechts zurück; alles rechts der Mitte.
+  ok(karton.zuLang.length === 0 && karton.durchsichtig === 0 && karton.namePx >= 9, `${name}: Namen passen auf die Schachteln, nahe Schachteln deckend ${JSON.stringify(karton)}`);
+  // Bogen in der Kachel: mittlere Schachtel ragt am weitesten nach links, Nachbarn weichen nach rechts zurück; alles in
+  // der rechten Hälfte, bis ±2 rechts nicht aus der Kachel.
+  const kr = await kachelRect(page);
   const boxes = await Promise.all([-2, -1, 0, 1, 2].map((d) => radBox(page, s0.i + d)));
   const xs = boxes.map((b) => b?.x ?? Infinity);
-  ok(xs[2] < xs[1] && xs[2] < xs[3] && xs[1] < xs[0] && xs[3] < xs[4] && xs[2] > W / 2, `${name}: Schachteln auf dem Bogen am rechten Rand (x ${xs.map(Math.round).join(', ')})`);
+  const rechts = await page.evaluate((i0) => {
+    const k = document.getElementById('rad-kachel').getBoundingClientRect();
+    const opts = document.querySelectorAll('#look-rad [role=option]');
+    return Math.max(...[-2, -1, 0, 1, 2].map((d) => opts[i0 + d].querySelector('.schachtel-karton').getBoundingClientRect().right - k.right));
+  }, s0.i);
+  ok(xs[2] < xs[1] && xs[2] < xs[3] && xs[1] < xs[0] && xs[3] < xs[4] && xs[2] > kr.x + kr.w / 2 && rechts <= 1,
+    `${name}: Schachteln auf dem Bogen am rechten Kachelrand (x ${xs.map((v) => Math.round(v - kr.x)).join(', ')} von ${Math.round(kr.w)}, rechts ${Math.round(rechts)} px)`);
+  // Name, Beschreibung und Knopf unten links in der Kachel, ohne Überlappung mit sichtbaren Schachteln.
+  const text = await page.evaluate(() => {
+    const k = document.getElementById('rad-kachel');
+    const kr = k.getBoundingClientRect();
+    const knopf = [...k.querySelectorAll('button')].find((b) => b.textContent.includes('Diesen Look ausprobieren'));
+    const teile = [...knopf.parentElement.children].map((c) => c.getBoundingClientRect());
+    const boxen = [...k.querySelectorAll('.rad-box')]
+      .filter((b) => b.style.display !== 'none' && Number(getComputedStyle(b).opacity) > 0.3)
+      .map((b) => b.querySelector('.schachtel-karton').getBoundingClientRect());
+    let ueber = 0;
+    for (const t of teile) for (const b of boxen) if (t.left < b.right && b.left < t.right && t.top < b.bottom && b.top < t.bottom) ueber++;
+    const innen = teile.every((t) => t.left >= kr.left && t.top >= kr.top && t.bottom <= kr.bottom && t.right <= kr.right);
+    return { ueber, innen, unten: Math.round(kr.bottom - knopf.getBoundingClientRect().bottom), links: Math.round(knopf.getBoundingClientRect().left - kr.left) };
+  });
+  ok(text.ueber === 0 && text.innen && text.unten <= 32 && text.links <= 32, `${name}: Text unten links in der Kachel, keine Überlappung mit Schachteln ${JSON.stringify(text)}`);
   await page.waitForNetworkIdle({ idleTime: 500, timeout: 30_000 }).catch(() => {});
   await sleep(800);
   await shotRad('1-rad');
@@ -161,77 +216,93 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await page.keyboard.press('ArrowDown');
 
   if (!touch) {
-    // Mausrad über dem Abschnitt: rastet erst ein, dreht dann; an den Enden frei; außerhalb normales Scrollen.
-    const top = await sectionTop(page);
-    const wheelAt = async (y, dy) => {
-      await page.mouse.move(W * 0.3, y);
+    // Mausrad über der Kachel: rastet erst ein, dreht dann; an den Enden frei; außerhalb normales Scrollen.
+    const wheelAt = async (x, y, dy) => {
+      await page.mouse.move(x, y);
       await page.mouse.wheel({ deltaY: dy });
       await sleep(450);
     };
+    const ganz = () => {
+      const k = document.getElementById('rad-kachel').getBoundingClientRect();
+      const m = document.querySelector('main').getBoundingClientRect();
+      return k.top >= m.top - 1 && k.bottom <= m.bottom + 1;
+    };
     await wait(() => Number(document.getElementById('look-rad').dataset.pos) === 3, 10_000);
-    await scrollMainTo(page, top - Math.round(H * 0.4));
+    const top = await ausrichten(page);
+    // Kachel unten angeschnitten, Zeiger über ihrem sichtbaren Teil.
+    await scrollMainTo(page, top - Math.round(H * 0.35));
     await sleep(300);
-    await wheelAt(H * 0.7, 100);
-    await wait(() => Math.abs(document.getElementById('alle-looks').getBoundingClientRect().top - document.querySelector('main').getBoundingClientRect().top) < 2, 5000);
+    let k = await kachelRect(page);
+    await wheelAt(k.x + k.w * 0.3, (k.y + H) / 2, 100);
+    await wait(ganz, 5000);
+    await sleep(600);
     const w1 = await radZustand(page);
-    ok(w1.top === 0 && w1.i === 3, `${name}: Mausrad über dem Abschnitt rastet zuerst ein (Abstand ${w1.top}, Look ${w1.i})`);
-    await wheelAt(H * 0.5, 100);
-    await wheelAt(H * 0.5, 100);
+    ok(w1.ganz && w1.i === 3 && (H <= 520 || w1.titel), `${name}: Mausrad über der Kachel rastet zuerst ein (ganz im Bild ${w1.ganz}, Überschrift ${w1.titel}, Look ${w1.i})`);
+    k = await kachelRect(page);
+    const mitte = [k.x + k.w * 0.3, k.y + k.h * 0.5];
+    await wheelAt(...mitte, 100);
+    await wheelAt(...mitte, 100);
     const w2 = await radZustand(page);
     // Vor dem Trackpad-Test ruhen lassen: Hintergrund und Nachbarn sind gerechnet (SwiftShader blockiert sonst die Seite).
     await wait(radBildFertig, 300_000);
     await page.waitForNetworkIdle({ idleTime: 500, timeout: 30_000 }).catch(() => {});
     await sleep(4000);
-    ok(w2.i === 5 && w2.top === 0, `${name}: Mausrad dreht das Rad (3 → ${w2.i}), Seite bleibt stehen`);
+    ok(w2.i === 5 && w2.scroll === w1.scroll, `${name}: Mausrad dreht das Rad (3 → ${w2.i}), Seite bleibt stehen`);
     // Trackpad: viele kleine Schritte, nicht zu empfindlich.
-    for (let k = 0; k < 6; k++) {
+    for (let j = 0; j < 6; j++) {
       await page.mouse.wheel({ deltaY: 12 });
       await sleep(30);
     }
     await sleep(400);
     const w3 = await radZustand(page);
-    ok(w3.i - w2.i === 1 && w3.top === 0, `${name}: Trackpad-Deltas (6 × 12 px) ergeben einen Schritt (${w2.i} → ${w3.i})`);
+    ok(w3.i - w2.i === 1 && w3.scroll === w1.scroll, `${name}: Trackpad-Deltas (6 × 12 px) ergeben einen Schritt (${w2.i} → ${w3.i})`);
     await shotRad('3-mausrad');
     // Ende: am letzten Look gibt das Rad nach unten frei.
+    const ruhe = w1.scroll;
     await page.focus('#look-rad');
     await page.keyboard.press('End');
     await sleep(600);
-    await wheelAt(H * 0.5, 100);
+    await wheelAt(...mitte, 100);
     const w4 = await radZustand(page);
-    ok(w4.i === w4.n - 1 && w4.scroll > top, `${name}: am letzten Look scrollt das Mausrad die Seite weiter (${w4.scroll - top} px)`);
-    await wheelAt(H * 0.5, 100);
+    ok(w4.i === w4.n - 1 && w4.scroll > ruhe, `${name}: am letzten Look scrollt das Mausrad die Seite weiter (${w4.scroll - ruhe} px)`);
+    await wheelAt(...mitte, 100);
     ok((await radZustand(page)).scroll > w4.scroll, `${name}: weiter nach unten bleibt nicht hängen`);
     // Schneller Takt (120 ms, keine Pause): am Ende gibt das Rad nach spätestens ~0,5 s frei.
-    await scrollMainTo(page, top);
+    await scrollMainTo(page, ruhe);
     await page.focus('#look-rad');
     await page.keyboard.press('End');
     await page.keyboard.press('ArrowUp');
     await sleep(600);
-    await page.mouse.move(W * 0.3, H * 0.5);
-    for (let k = 0; k < 14; k++) {
+    await page.mouse.move(...mitte);
+    for (let j = 0; j < 14; j++) {
       await page.mouse.wheel({ deltaY: 100 });
       await sleep(120);
     }
     await sleep(400);
     const w4b = await radZustand(page);
-    ok(w4b.i === w4b.n - 1 && w4b.scroll > top, `${name}: Mausrad im schnellen Takt bleibt am Ende nicht hängen (${w4b.scroll - top} px)`);
+    ok(w4b.i === w4b.n - 1 && w4b.scroll > ruhe, `${name}: Mausrad im schnellen Takt bleibt am Ende nicht hängen (${w4b.scroll - ruhe} px)`);
     // Anfang: am ersten Look gibt das Rad nach oben frei.
-    await scrollMainTo(page, top);
+    await scrollMainTo(page, ruhe);
     await page.focus('#look-rad');
     await page.keyboard.press('Home');
     await sleep(600);
-    await wheelAt(H * 0.5, -100);
+    await wheelAt(...mitte, -100);
     const w5 = await radZustand(page);
-    ok(w5.i === 0 && w5.scroll < top, `${name}: am ersten Look scrollt das Mausrad die Seite nach oben (${w5.scroll - top} px)`);
-    // Zeiger außerhalb (über dem Vergleich): normales Scrollen, das Rad bleibt.
-    await scrollMainTo(page, top - Math.round(H * 0.8));
+    ok(w5.i === 0 && w5.scroll < ruhe, `${name}: am ersten Look scrollt das Mausrad die Seite nach oben (${w5.scroll - ruhe} px)`);
+    // Zeiger außerhalb der Kachel (über der Überschrift), Kachel angeschnitten: normales Scrollen, kein Einrasten.
+    await scrollMainTo(page, top - Math.round(H * 0.35));
     await sleep(300);
+    const titel = await page.evaluate(() => {
+      const r = document.getElementById('rad-titel').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
     const before = await radZustand(page);
-    await wheelAt(H * 0.1, 100);
+    await wheelAt(titel.x, titel.y, 100);
     const after = await radZustand(page);
-    ok(after.scroll - before.scroll >= 90 && after.i === before.i, `${name}: Mausrad außerhalb scrollt normal (${after.scroll - before.scroll} px)`);
+    ok(after.scroll - before.scroll >= 90 && after.scroll - before.scroll <= 110 && after.i === before.i,
+      `${name}: Mausrad außerhalb der Kachel scrollt normal (${after.scroll - before.scroll} px)`);
     // prefers-reduced-motion: sofort umschalten, ohne Bewegung.
-    await scrollMainTo(page, top);
+    await scrollMainTo(page, ruhe);
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.focus('#look-rad');
     await page.keyboard.press('ArrowDown');
@@ -239,14 +310,16 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
     ok(rm.pos === rm.i && rm.i === 1, `${name}: reduzierte Bewegung schaltet sofort um (pos ${rm.pos})`);
     await page.emulateMediaFeatures([]);
   } else {
-    // Wischen neben dem Bogen scrollt die Seite.
-    const top = await sectionTop(page);
-    await scrollMainTo(page, top);
+    // Wischen auf der Kachel neben dem Bogen scrollt die Seite.
+    const top = await ausrichten(page);
     await sleep(300);
     const before = await radZustand(page);
+    const k = await kachelRect(page);
+    const x = k.x + k.w * 0.15;
+    const y = k.y + k.h * 0.35;
     const ts = Date.now() / 1000;
-    let done = await cdpTouch('touchStart', [{ x: W * 0.2, y: H * 0.45 }], ts);
-    for (let k = 1; k <= 6 && done; k++) done = await cdpTouch('touchMove', [{ x: W * 0.2, y: H * 0.45 - k * 30 }], ts + k * 0.016);
+    let done = await cdpTouch('touchStart', [{ x, y }], ts);
+    for (let j = 1; j <= 6 && done; j++) done = await cdpTouch('touchMove', [{ x, y: y - j * 30 }], ts + j * 0.016);
     if (done) done = await cdpTouch('touchEnd', [], ts + 0.12);
     await sleep(1500);
     const after = await radZustand(page);
@@ -259,12 +332,12 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await ausrichten(page);
   await sleep(500);
   const pt = await page.evaluate(() => {
-    const sec = document.getElementById('alle-looks');
-    const r = sec.getBoundingClientRect();
-    for (const [fx, fy] of [[0.25, 0.4], [0.2, 0.3], [0.35, 0.5]]) {
+    const k = document.getElementById('rad-kachel');
+    const r = k.getBoundingClientRect();
+    for (const [fx, fy] of [[0.25, 0.3], [0.2, 0.2], [0.35, 0.4]]) {
       const x = r.left + r.width * fx, y = r.top + r.height * fy;
       const el = document.elementFromPoint(x, y);
-      if (el && sec.contains(el) && !el.closest('#look-rad, button, [role=tablist]')) return { x, y };
+      if (el && k.contains(el) && !el.closest('#look-rad, button')) return { x, y };
     }
     return null;
   });
@@ -286,7 +359,7 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await page.evaluate(() => [...document.querySelectorAll('#alle-looks [role=tab]')].find((b) => b.textContent.startsWith('Kodak'))?.click());
   const kodak = await wait(() => document.querySelectorAll('#look-rad [role=option]').length === 17 && document.getElementById('look-rad').getAttribute('aria-activedescendant')?.startsWith('rad-kodak'), 10_000);
   ok(kodak && (await wait(radBildFertig, 300_000)), `${name}: Marke Kodak mit eigenem Rad (17 Schachteln)`);
-  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 6, 300_000);
+  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
   await sleep(900);
   await ausrichten(page);
   await shotRad('5-kodak');
@@ -295,7 +368,7 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await page.keyboard.press('ArrowLeft');
   const leicaFokus = await page.evaluate(() => document.activeElement?.id === 'rad-marke-leica' && document.activeElement.getAttribute('aria-selected') === 'true');
   ok(leicaFokus && (await wait(() => document.querySelectorAll('#look-rad [role=option]').length === 18, 10_000)) && (await wait(radBildFertig, 300_000)), `${name}: Marke Leica per Pfeiltaste (18 Schachteln)`);
-  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 6, 300_000);
+  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
   await sleep(900);
   await ausrichten(page);
   await shotRad('6-leica');
@@ -304,10 +377,18 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await page.click('#alle-looks button[aria-label="Beispielfoto Nachts"]');
   const nacht = await wait(() => [...document.querySelectorAll('#alle-looks img.rad-hg')].some((i) => i.alt.includes('Nachts') && i.complete && i.naturalWidth > 0), 300_000);
   ok(nacht, `${name}: Foto „Nachts“ im Look-Rad gerechnet`);
-  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 6, 300_000);
+  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
   await sleep(900);
   await ausrichten(page);
   await shotRad('7-nachts');
+  // Fotowechsel: „Sonnenuntergang“.
+  await page.click('#alle-looks button[aria-label="Beispielfoto Sonnenuntergang"]');
+  ok(await wait(() => [...document.querySelectorAll('#alle-looks img.rad-hg')].some((i) => i.alt.includes('Sonnenuntergang') && i.complete && i.naturalWidth > 0), 300_000),
+    `${name}: Foto „Sonnenuntergang“ im Look-Rad gerechnet`);
+  await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
+  await sleep(900);
+  await ausrichten(page);
+  await shotRad('8-sonnenuntergang');
   await page.evaluate(() => [...document.querySelectorAll('#alle-looks [role=tab]')].find((b) => b.textContent.startsWith('Fujifilm'))?.click());
   await page.click('#alle-looks button[aria-label="Beispielfoto Klippen"]');
   await wait(radBildFertig, 300_000);
@@ -323,6 +404,11 @@ async function run(name, viewport, editor, radEditor) {
   page.on('pageerror', (e) => errors.push(e.message));
   const requests = [];
   page.on('request', (r) => requests.push(r.url()));
+  const antworten = [];
+  page.on('response', (r) => antworten.push({ url: r.url(), status: r.status() }));
+  // Hochkant-Fassung, solange die Rahmen hochkant sind (src/ui/start/hooks.ts: hochkant und schmaler als 640 px).
+  const fassung = viewport.width < 640 && viewport.height > viewport.width ? 'hoch' : 'quer';
+  const grossGeladen = (id) => antworten.some((a) => a.url.endsWith(`/beispiele/gross/${id}-${fassung}.jpg`) && a.status === 200);
   const shot = (n, opts = {}) => page.screenshot({ path: `${OUT}/${name}-${n}.png`, ...opts });
   const shotRad = (n) => page.screenshot({ path: `${OUT_RAD}/${name}-${n}.png` });
   let cdp = null;
@@ -355,6 +441,9 @@ async function run(name, viewport, editor, radEditor) {
     await page.evaluate(() => [...document.querySelectorAll('main > section button')].find((b) => b.textContent.includes('Looks ansehen'))?.click());
     const live = await wait(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 1000));
     ok(live, `${name}: Vergleich live gerechnet (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+    // Fassung nach Ausrichtung (Handy hochkant → hoch, sonst quer): Seitenfassung und Minis nur in dieser Fassung.
+    const fotos = requests.filter((u) => /\/beispiele\/(mini\/)?[a-z]+-(quer|hoch)\.jpg$/.test(u)).map((u) => u.replace(/^.*\/beispiele\//, ''));
+    ok(fotos.includes(`klippen-${fassung}.jpg`) && fotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `${name}: ${fassung}-Fassung der Beispielfotos (${fotos.join(', ')})`);
     await sleep(900);
     await scrollTo('#looks');
     await sleep(300);
@@ -407,8 +496,9 @@ async function run(name, viewport, editor, radEditor) {
 
     // Foto wechseln
     await page.click('#looks button[aria-label="Beispielfoto Nachts"]');
-    const night = await wait(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.includes('skyline')) &&
-      [...document.querySelectorAll('#looks img.ueberblenden')].some((i) => i.src.startsWith('blob:') && i.naturalWidth > 1000 && i.naturalWidth > 1.7 * i.naturalHeight));
+    const night = await wait((h) => [...document.querySelectorAll('#looks img')].some((i) => i.src.includes(`/beispiele/nachts-${h ? 'hoch' : 'quer'}.jpg`)) &&
+      [...document.querySelectorAll('#looks img.ueberblenden')].some((i) => i.src.startsWith('blob:') && Math.max(i.naturalWidth, i.naturalHeight) > 1000 &&
+        (h ? i.naturalHeight > 1.7 * i.naturalWidth : i.naturalWidth > 1.7 * i.naturalHeight)), 120_000, fassung === 'hoch');
     ok(night, `${name}: Foto „Nachts“ gerechnet`);
     await sleep(1200);
     await scrollTo('#looks .cursor-ew-resize', 'center');
@@ -416,7 +506,7 @@ async function run(name, viewport, editor, radEditor) {
     await shot('5-vergleich-nachts');
     await page.click('#looks button[aria-label="Beispielfoto Klippen"]');
 
-    // Look-Rad (Vollbild, Filmschachteln auf dem Bogen): Bildschirmfotos nach test-output/look-rad/
+    // Look-Kachel (Filmschachteln auf dem Bogen): Bildschirmfotos nach test-output/look-rad/
     await radPruefen(page, name, viewport, { shotRad, wait, cdpTouch });
     // durch die Seite scrollen, damit alles einblendet und rechnet
     for (let y = 0; ; y += 400) {
@@ -449,7 +539,6 @@ async function run(name, viewport, editor, radEditor) {
         el.style.overflow = 'visible';
       }
       document.querySelector('main > section').style.minHeight = `${h}px`;
-      document.getElementById('alle-looks').style.height = `${h}px`;
       return document.documentElement.scrollHeight;
     });
     await page.setViewport({ ...viewport, height: full, deviceScaleFactor: 1 });
@@ -462,7 +551,6 @@ async function run(name, viewport, editor, radEditor) {
         el.style.overflow = '';
       }
       document.querySelector('main > section').style.minHeight = '';
-      document.getElementById('alle-looks').style.height = '';
     });
     await sleep(300);
 
@@ -475,6 +563,7 @@ async function run(name, viewport, editor, radEditor) {
       await page.keyboard.press('Enter');
       const inEditor = await wait(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
       ok(inEditor && (await wait((n) => document.body.innerText.includes(n), 10_000, look)), `${name}: Enter auf dem Rad → Editor mit „${look}“`);
+      ok(grossGeladen('klippen'), `${name}: Editor lädt die große Fassung gross/klippen-${fassung}.jpg`);
       await sleep(1500);
       await shotRad('9-editor');
     }
@@ -484,6 +573,7 @@ async function run(name, viewport, editor, radEditor) {
       await page.evaluate(() => [...document.querySelectorAll('main button')].reverse().find((b) => b.textContent.includes('Mit Beispielfoto ausprobieren'))?.click());
       const inEditor = await wait(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
       ok(inEditor, `${name}: Beispielfoto → Editor`);
+      ok(grossGeladen('klippen'), `${name}: Editor lädt die große Fassung gross/klippen-${fassung}.jpg`);
       // Der im Vergleich gewählte Look (Acros) kommt mit.
       ok(await wait(() => document.body.innerText.includes('Acros'), 10_000), `${name}: Editor übernimmt den Look „Acros“`);
       await sleep(1500);

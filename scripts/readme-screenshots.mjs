@@ -1,13 +1,15 @@
 // Bilder für die README: node scripts/readme-screenshots.mjs [start editor einstellungen lupe rezept …]  (Port TEST_PORT, Vorgabe 5190)
 // Startet den Test-Dev-Server und schreibt JPEGs nach docs/screenshots/ (je höchstens 300 KB; die Qualität sinkt, bis es passt).
-// Es werden ausschließlich die öffentlichen Beispielfotos aus public/beispiele/ geladen – nie testbilder/.
+// Es werden ausschließlich die öffentlichen Beispielfotos aus public/beispiele/ geladen – nie testbilder/: im Editor die
+// großen Fassungen (gross/), am Handy hochkant, am PC quer, wie die Startseite sie öffnet.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { launch, startDevServer } from './lib/browser.mjs';
 
 const OUT = 'docs/screenshots';
 const MAX_BYTES = 300 * 1024;
-const FOTOS = ['klippen', 'skyline', 'garten', 'hund'].map((n) => resolve(`public/beispiele/${n}.jpg`));
+const FOTOS = ['klippen', 'sonnenuntergang', 'nachts', 'garten'];
+const fotos = (fassung) => FOTOS.map((n) => resolve(`public/beispiele/gross/${n}-${fassung}.jpg`));
 const phone = { width: 393, height: 852, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const pc = { width: 1440, height: 900, deviceScaleFactor: 1 };
 // Rezept wie auf der Startseite (src/ui/start/rezept.ts).
@@ -82,7 +84,7 @@ async function session(viewport, fn) {
   /** Fotos laden, Tipp-Meldung schließen, auf Vorschau und Kacheln warten. */
   const oeffnen = async () => {
     await page.goto(`${server.url}/`, { waitUntil: 'networkidle0' });
-    await (await page.$('#datei-eingabe')).uploadFile(...FOTOS);
+    await (await page.$('#datei-eingabe')).uploadFile(...fotos(viewport.width < viewport.height ? 'hoch' : 'quer'));
     await wait(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
     await wait((n) => document.querySelectorAll('section[data-cat=fujifilm] img').length >= 8 && document.querySelectorAll('ul[aria-label="Geladene Fotos"] li img').length >= n, 180_000, FOTOS.length);
     await click('[aria-label="Meldung schließen"]');
@@ -119,21 +121,21 @@ try {
       await s.oeffnen();
 
       if (todo.includes('editor')) {
-        await s.foto(kind === 'handy' ? 1 : 0);
+        await s.foto(FOTOS.indexOf(kind === 'handy' ? 'nachts' : 'klippen'));
         await s.click('#tab-looks');
         await s.look(kind === 'handy' ? 'Vision3 500T' : 'Kodachrome 64', 'kodak');
         await shot(page, `editor-${kind}`);
       }
 
       if (todo.includes('rezept')) {
-        await s.foto(2);
+        await s.foto(FOTOS.indexOf('garten'));
         await s.rezeptEintragen();
         await shot(page, `rezept-${kind}`);
         // Anwenden: danach zeigt „Anpassen“ die Werte des Rezepts.
         await s.clickText('[role=dialog] button', 'Anwenden');
         await sleep(2000);
       } else if (todo.includes('einstellungen')) {
-        await s.foto(2);
+        await s.foto(FOTOS.indexOf('garten'));
         await s.rezeptEintragen();
         await s.clickText('[role=dialog] button', 'Anwenden');
         await sleep(2000);
@@ -155,7 +157,7 @@ try {
       }
 
       if (todo.includes('lupe') && kind === 'pc') {
-        await s.foto(0);
+        await s.foto(FOTOS.indexOf('klippen'));
         await s.click('#tab-looks');
         await s.look('Portra 400', 'kodak');
         await s.click('button[aria-label="100 %-Ansicht"]');
