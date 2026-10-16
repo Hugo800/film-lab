@@ -7,7 +7,7 @@ import type { Engine, SourceImage } from '../../types';
 import { defaultsFor, lutFor } from '../lookRegistry';
 import { closeSource } from '../session';
 
-export type BeispielId = 'klippen' | 'porsche' | 'garten';
+export type BeispielId = 'klippen' | 'skyline' | 'garten' | 'hund';
 
 export interface Beispiel {
   id: BeispielId;
@@ -18,8 +18,9 @@ export interface Beispiel {
 
 export const BEISPIELE: Beispiel[] = [
   { id: 'klippen', label: 'Klippen', pos: '50% 50%' },
-  { id: 'porsche', label: 'Nachts', pos: '50% 74%' },
+  { id: 'skyline', label: 'Nachts', pos: '10% 50%' },
   { id: 'garten', label: 'Garten', pos: '42% 50%' },
+  { id: 'hund', label: 'Hund', pos: '45% 35%' },
 ];
 
 export const beispielUrl = (id: BeispielId) => `${import.meta.env.BASE_URL}beispiele/${id}.jpg`;
@@ -60,6 +61,9 @@ async function toUrl(bmp: ImageBitmap): Promise<string> {
 }
 
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+/** Höchstens so viele große Bilder (≈ 340 KB je Stück) im Cache; ältere werden freigegeben (zuletzt benutzt bleibt). */
+const MAX_GROSS = 24;
 
 // Vorab-Aufträge (Priorität 0) blockieren den Hauptthread; sie warten, bis eine Weile weder gescrollt noch getippt wurde.
 const RUHE_MS = 300;
@@ -129,6 +133,7 @@ export function createWerkstatt() {
           return;
         }
         done.set(job.key, url);
+        if (job.edge >= GROSS) aufraeumen();
         for (const w of job.waiters) w.resolve(url);
       } catch (err) {
         if (mine === epoch) for (const w of job.waiters) w.reject(err);
@@ -140,11 +145,28 @@ export function createWerkstatt() {
     if (mine === epoch) running = false;
   }
 
+  /**
+   * Große Bilder als LRU begrenzen: `done` ist nach letzter Benutzung geordnet (Treffer rücken ans Ende). Gerade
+   * angezeigte Bilder wurden zuletzt angefragt und bleiben; ein schon dargestelltes <img> behält sein Bild auch nach
+   * dem Freigeben der URL.
+   */
+  function aufraeumen() {
+    const gross = [...done.keys()].filter((k) => Number(k.slice(k.lastIndexOf('|') + 1)) >= GROSS);
+    for (const k of gross.slice(0, Math.max(0, gross.length - MAX_GROSS))) {
+      URL.revokeObjectURL(done.get(k)!);
+      done.delete(k);
+    }
+  }
+
   /** Foto `photo` mit den Standardwerten von Look `look`, lange Kante `edge`, als Object-URL (JPEG). */
   function request(photo: BeispielId, look: string, edge: number, prio: number): Auftrag {
     const key = `${photo}|${look}|${edge}`;
     const hit = done.get(key);
-    if (hit) return { promise: Promise.resolve(hit), cancel() {} };
+    if (hit) {
+      done.delete(key);
+      done.set(key, hit);
+      return { promise: Promise.resolve(hit), cancel() {} };
+    }
     let job = jobs.get(key);
     if (!job) {
       job = { key, photo, look, edge, prio, seq: seq++, waiters: [] };

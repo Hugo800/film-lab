@@ -7,7 +7,7 @@ import { launch, startDevServer } from './lib/browser.mjs';
 
 const OUT = 'docs/screenshots';
 const MAX_BYTES = 300 * 1024;
-const FOTOS = ['klippen', 'porsche', 'garten'].map((n) => resolve(`public/beispiele/${n}.jpg`));
+const FOTOS = ['klippen', 'skyline', 'garten', 'hund'].map((n) => resolve(`public/beispiele/${n}.jpg`));
 const phone = { width: 393, height: 852, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const pc = { width: 1440, height: 900, deviceScaleFactor: 1 };
 // Rezept wie auf der Startseite (src/ui/start/rezept.ts).
@@ -84,7 +84,7 @@ async function session(viewport, fn) {
     await page.goto(`${server.url}/`, { waitUntil: 'networkidle0' });
     await (await page.$('#datei-eingabe')).uploadFile(...FOTOS);
     await wait(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
-    await wait(() => document.querySelectorAll('section[data-cat=fujifilm] img').length >= 8 && document.querySelectorAll('ul[aria-label="Geladene Fotos"] li img').length >= 3);
+    await wait((n) => document.querySelectorAll('section[data-cat=fujifilm] img').length >= 8 && document.querySelectorAll('ul[aria-label="Geladene Fotos"] li img').length >= n, 180_000, FOTOS.length);
     await click('[aria-label="Meldung schließen"]');
     await sleep(600);
   };

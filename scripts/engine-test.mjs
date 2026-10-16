@@ -1,6 +1,6 @@
 // Browser-Prüfung der Engine: npm run test:engine [-- schritt …]
 // Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190).
-// Schritte: identity seams compare region timing abort jpeg thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
+// Schritte: identity seams compare staerke region timing abort jpeg thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
 // Vergleichsbilder je Effekt (strips, grain, cc) nach test-output/engine-v2/.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
@@ -75,6 +75,29 @@ try {
       delete r.png;
       results[`compare ${name}`] = r;
       expect(r.vsDownscaledFull.mean < 3, `c) Vorschau vs. verkleinerter Vollexport ${name}${params.grainEffect ? '' : ' (ohne Korn)'} ${r.rect[2]}×${r.rect[3]}: Mittel ${r.vsDownscaledFull.mean.toFixed(2)}, max ${r.vsDownscaledFull.max}; vs. Export maxEdge: Mittel ${r.vsSmall?.mean.toFixed(2)}; Rauschen σ Vorschau ${r.noise.preview.toFixed(2)} / Vollexport verkleinert ${r.noise.downFull.toFixed(2)}`);
+    }
+  }
+
+  if (want('staerke')) {
+    // Stärke-Regler: s = 1 bitgleich wie vor dem Umbau, s = 0 ≈ Original, Wirkung wächst mit s; Vorschau = Export bei s = 0,5 und 2.
+    const ids = ['classic-chrome', 'velvia', 'acros', 'leica-chrome', 'leica-mono-natural', 'kodak-portra-400', 'kodak-kodacolor-vr-200',
+      'kodak-tri-x-400', 'kodak-cinestill-800t', 'kodak-vision3-500t'].filter((id) => looks.includes(id));
+    const r = await T('strength', 'DSC03982.JPEG', ids, 600);
+    results.staerke = r;
+    for (const x of r) {
+      const c = Object.fromEntries(x.curve.map((k) => [k.s, k]));
+      const rising = x.curve.every((k, i) => i === 0 || k.mean > x.curve[i - 1].mean);
+      expect(x.s1VsAlt.max === 0 && c[0].mean < 0.5 && rising,
+        `Stärke ${x.name}: s=1 vs. ohne Look-Vorgaben max ${x.s1VsAlt.max}; ΔE2000 zum Original ${x.curve.map((k) => `${k.s * 50} % ${k.mean.toFixed(2)}`).join(', ')} (0 %: p99 ${c[0].p99.toFixed(2)})`);
+    }
+    const portra = looks.includes('kodak-portra-400') ? 'kodak-portra-400' : LOOK;
+    const defs = await page.evaluate(async (id) => (await import('/src/looks/index.ts')).LOOKS.find((l) => l.id === id)?.defaults ?? {}, portra);
+    for (const s of [0.5, 2]) {
+      // Korn auch aus den Look-Vorgaben nehmen: sonst bliebe bei s = 2 die halbe Abweichung als Korn übrig.
+      const noGrain = { ...defs, grainEffect: 0 };
+      const p = { ...noGrain, strength: s, lookDefaults: noGrain };
+      const v = await T('previewVsExport', 'DSC03427.JPEG', p, portra);
+      expect(v.vsDownscaledFull.mean < 3, `Stärke ${s * 50} % (${portra}, ohne Korn): Vorschau vs. verkleinerter Vollexport Mittel ${v.vsDownscaledFull.mean.toFixed(2)}, max ${v.vsDownscaledFull.max}; vs. Export maxEdge Mittel ${v.vsSmall?.mean.toFixed(2)}`);
     }
   }
 

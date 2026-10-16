@@ -121,8 +121,8 @@ export function Adjust() {
   const [saving, setSaving] = useState(false);
   const entries = useMemo(() => builtinEntries(), []);
   if (!photo) return null;
-  const { lookId, params } = photo.settings;
-  const defaults = defaultsFor(lookId);
+  const { lookId, params, recipeDefaults } = photo.settings;
+  const defaults = defaultsFor(lookId, recipeDefaults);
   const mono = isMonochrome(lookId);
   const lookName = lookId === NONE_ID ? NONE_ENTRY.name : (entries.find((e) => e.id === lookId) ?? customLuts.find((l) => l.id === lookId))?.name ?? '';
   const anyChanged = (Object.keys(defaults) as (keyof typeof defaults)[]).some((k) => {

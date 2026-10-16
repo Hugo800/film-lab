@@ -342,6 +342,17 @@ async function run(mode, viewport) {
       await waitFor(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 0), 120_000),
       'Startseite: Vorher/Nachher am Beispielfoto live gerechnet',
     );
+    // Look-Rad: Hintergrund und Sichtfenster der Filmschachteln mit der Engine gerechnet; Pfeiltaste dreht.
+    await page.evaluate(() => document.getElementById('alle-looks')?.scrollIntoView());
+    ok(
+      await waitFor(() => [...document.querySelectorAll('#alle-looks img.rad-hg')].some((i) => i.alt && i.complete && i.naturalWidth > 0) &&
+        [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].some((i) => i.complete && i.naturalWidth > 0), 300_000),
+      'Startseite: Look-Rad mit Hintergrund und Filmschachteln live gerechnet',
+    );
+    const radVorher = await page.$eval('#look-rad', (r) => r.getAttribute('aria-activedescendant'));
+    await page.focus('#look-rad');
+    await page.keyboard.press('ArrowDown');
+    ok(await waitFor((v) => document.getElementById('look-rad').getAttribute('aria-activedescendant') !== v, 5000, radVorher), 'Startseite: Look-Rad dreht per Pfeiltaste');
 
     // Laden
     const tLoad = Date.now();
@@ -359,6 +370,20 @@ async function run(mode, viewport) {
     // Foto 1: Look + Regler, Vorschau ändert sich
     const before = await previewShot();
     ok(await chooseLook(looks[2]), `Foto 1: Look „${looks[2]}“`);
+    // Stärke-Regler: 50 % = Look wie definiert (Markierung „Rezept“), 0–100 %, Zurücksetzen → 50 %.
+    const strength = () => page.$eval('#regler-strength', (e) => {
+      const row = e.closest('.grid');
+      return { v: Number(e.value), max: Number(e.max), shown: row.querySelector('output')?.textContent.trim(), mark: row.querySelector('[data-marke]')?.textContent.trim() };
+    });
+    const st0 = await strength();
+    ok(st0.v === 1 && st0.max === 2 && st0.shown === '50 %' && st0.mark === 'Rezept', `Stärke: Standard ${st0.shown} (Wert ${st0.v} von ${st0.max}), Markierung „${st0.mark}“`);
+    await page.focus('#regler-strength');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+    const st1 = await strength();
+    await page.$eval('#regler-strength', (e) => e.closest('.grid').querySelector('button[aria-label$="zurücksetzen"]').click());
+    await sleep(200);
+    const st2 = await strength();
+    ok(st1.shown === '55 %' && st2.v === 1 && st2.shown === '50 %', `Stärke: Pfeil → ${st1.shown}, Zurücksetzen → ${st2.shown}`);
     const ex = await nudge('exposure', 4);
     ok(ex.after > ex.before, `Foto 1: Belichtung ${ex.before} → ${ex.after}`);
     const hl = await nudge('highlightTone', 3);

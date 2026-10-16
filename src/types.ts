@@ -37,7 +37,12 @@ export type Level = 0 | 1 | 2;
  * (relativ zur kürzeren Bildseite), damit Vorschau und Export gleich aussehen.
  */
 export interface LookParams {
-  /** Mischung Original ↔ Look (nur die LUT), 0..1. */
+  /**
+   * Stärke des Looks als Faktor s, 0..2 (UI: s · 50 %). 1 = Look bzw. Rezept wie definiert, 0 = Original,
+   * 2 = doppelte Wirkung. s skaliert die LUT und die Abweichung der Look-Vorgaben (`lookDefaults`) von
+   * DEFAULT_PARAMS; eigene Änderungen gegenüber den Look-Vorgaben wirken bei jeder Stärke voll
+   * (siehe effectiveParams in src/engine/plan.ts).
+   */
   strength: number;
   /** Belichtungskorrektur in Blendenstufen, -2..2 (vor der LUT, in linearem Licht). */
   exposure: number;
@@ -87,6 +92,13 @@ export interface LookParams {
   leak: number;
   /** Zufallssamen für Light Leaks (ganzzahlig). „Neu würfeln“ ändert nur diesen Wert. */
   leakSeed: number;
+
+  /**
+   * Vorgaben des aktiven Looks (FilmLook.defaults), nur für die Engine: Daran misst sie, welcher Teil der
+   * Werte zum Look gehört und mit `strength` skaliert. Die UI setzt das Feld beim Rendern, gespeichert wird
+   * es nicht. Fehlt es, skaliert die Stärke nur die LUT (alle Werte gelten als eigene Änderungen).
+   */
+  lookDefaults?: Partial<LookParams>;
 }
 
 /** Gruppen in der Look-Auswahl. 'kodak' = Kodak-Filme als Fuji-Rezepte. */

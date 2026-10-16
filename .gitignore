@@ -6,3 +6,7 @@ testbilder/
 *:Zone.Identifier
 # Ausgaben von Browser-Tests
 test-output/
+# Wegwerf-Skripte (Diagnose, UX-Prüfung, Nachstellen) – gehören nicht ins Repo
+scripts/diag-*
+scripts/ux-*
+scripts/repro-*

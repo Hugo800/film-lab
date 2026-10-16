@@ -30,7 +30,8 @@ export function loadPresets(): UserPreset[] {
     return Array.isArray(list) 
       ? (list as UserPreset[])
           .filter((p) => p && p.id && p.name && p.lookId && p.params)
-          .map((p) => ({ ...p, params: { ...DEFAULT_PARAMS, ...p.params } }))
+          // Stärke aufs Raster des Reglers (1 %-Schritte); ältere Rezepte konnten Zwischenwerte wie 0,85 haben.
+          .map((p) => ({ ...p, params: { ...DEFAULT_PARAMS, ...p.params, strength: Math.round((p.params.strength ?? 1) * 50) / 50 } }))
       : [];
   } catch {
     return [];

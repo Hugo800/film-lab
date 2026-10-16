@@ -17,6 +17,7 @@ import {
   containRect,
   drStrength,
   drWhite,
+  effectiveParams,
   filterMargin,
   fitLongEdge,
   grainLattice,
@@ -25,6 +26,7 @@ import {
   sharpKernelWeight,
   targetSpan,
   toColumnMajor,
+  type EffectiveParams,
   type Rect,
   type Size,
 } from './plan';
@@ -35,9 +37,6 @@ const PREVIEW_MAX = 2560;
 const HALO_SRC_EDGE = 1024; // Effektkarte (Halation, Klarheit) aus fester Größe → Export = Vorschau
 const HALO_MAP_EDGE = 512;
 const CLARITY_SIGMA = 0.015; // Radius der Klarheit relativ zur kürzeren Seite
-// Korn-Amplitude je Größe und Stufe (Kodierwerte); abgestimmt an Fujis Grain Effect (scripts/abgleich-pipeline.mjs korn):
-// σ ≈ 2,4 (schwach) / 6,1 (stark) in Mitteltönen bei 24 MP. „klein“ mittelt feinere Gitterpunkte, daher höherer Faktor.
-const GRAIN_AMP = { klein: [0, 0.0171, 0.0432], gross: [0, 0.0105, 0.0264] };
 const LUT_CACHE = 24;
 // Mehr bringt die Vorschau nicht, kostet aber GPU-Zeit pro Regleränderung (gleiche Grenze wie die UI).
 const MAX_BUFFER_PIXELS = 4_000_000;
@@ -184,14 +183,14 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     gl!.uniform1i(p.loc('uSrcP3'), p3 ? 1 : 0);
   }
 
-  function setDevelop(p: Program, params: LookParams) {
+  function setDevelop(p: Program, params: EffectiveParams) {
     gl!.uniformMatrix3fv(p.loc('uColorMat'), false, toColumnMajor(colorMatrix(params)));
     gl!.uniform1f(p.loc('uDR'), drStrength(params.dynamicRange));
     gl!.uniform1f(p.loc('uDRWhite'), drWhite(params));
   }
 
   /** `scale` = Zielpixel je Pixel des Vollbilds (für den Radius der Schärfung). */
-  function setLook(p: Program, l: Lut3D | null, params: LookParams, effects: Target | null, scale: number) {
+  function setLook(p: Program, l: Lut3D | null, params: EffectiveParams, effects: Target | null, scale: number) {
     const r = alive();
     setDevelop(p, params);
     const useLut = !!l && params.strength > 0;
@@ -220,7 +219,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     gl!.uniform1f(p.loc('uClarity'), clarity);
     gl!.uniform1f(p.loc('uSharp'), params.sharpness);
     gl!.uniform1f(p.loc('uSharpW'), sharpW);
-    gl!.uniform1f(p.loc('uGrain'), GRAIN_AMP[params.grainSize]?.[params.grainEffect] ?? 0);
+    gl!.uniform1f(p.loc('uGrain'), params.grain);
     gl!.uniform1f(p.loc('uGrainLattice'), grainLattice(params.grainSize));
     gl!.uniform1f(p.loc('uVignette'), params.vignette);
     gl!.uniform1f(p.loc('uLeak'), params.leak);
@@ -279,13 +278,13 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     }
   }
 
-  const needsMap = (p: LookParams) => p.halation > 0 || p.clarity !== 0;
+  const needsMap = (p: EffectiveParams) => p.halation > 0 || p.clarity !== 0;
 
   /**
    * Effektkarte: Lichter über der Schwelle (Halation, zwei Radien) und Helligkeit (Klarheit),
    * unscharf mit Radien relativ zur kürzeren Seite. Global vorab, damit Kacheln nahtlos sind.
    */
-  function buildEffectMap(haloSrc: Target, params: LookParams): Target {
+  function buildEffectMap(haloSrc: Target, params: EffectiveParams): Target {
     const r = alive();
     const s = fitLongEdge(haloSrc.width, haloSrc.height, HALO_MAP_EDGE);
     const a = createTarget(gl!, s.width, s.height, r.floatTargets);
@@ -316,7 +315,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     return a;
   }
 
-  function effectsFor(params: LookParams): Target | null {
+  function effectsFor(params: EffectiveParams): Target | null {
     if (!prepared || !needsMap(params)) return null;
     const p = params;
     const key = `${generation}|${p.exposure}|${p.wbKelvin}|${p.wbShiftR}|${p.wbShiftB}|${p.dynamicRange}`;
@@ -395,8 +394,8 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     prepare(src, false);
   }
 
-  function render(params: LookParams, opts: RenderOptions = {}) {
-    last = { params, opts };
+  function render(look: LookParams, opts: RenderOptions = {}) {
+    last = { params: look, opts };
     if (disposed || !res || gl!.isContextLost()) return;
     const dpr = bufferScale();
     const cw = Math.max(1, Math.round(canvas.clientWidth * dpr));
@@ -421,6 +420,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     const rect = containRect(source.width, source.height, cw, ch);
     const out = { width: rect.x1 - rect.x0, height: rect.y1 - rect.y0 };
     const r = res;
+    const params = effectiveParams(look);
     const effects = effectsFor(params);
     gl!.bindFramebuffer(gl!.FRAMEBUFFER, null);
     gl!.viewport(rect.x0, ch - rect.y1, out.width, out.height);
@@ -437,7 +437,8 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     while (pending) await pending;
   }
 
-  async function renderThumbnail(l: Lut3D | null, params: LookParams, maxEdge: number): Promise<ImageBitmap> {
+  async function renderThumbnail(l: Lut3D | null, look: LookParams, maxEdge: number): Promise<ImageBitmap> {
+    const params = effectiveParams(look);
     await ready();
     const r = alive();
     if (!prepared || !source) throw new Error('Keine Quelle geladen.');
@@ -464,12 +465,13 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   async function renderRegion(
     src: SourceImage,
     l: Lut3D | null,
-    params: LookParams,
+    look: LookParams,
     rect: Rect,
     outW: number,
     outH: number,
     opts: { showOriginal?: boolean; signal?: AbortSignal } = {},
   ): Promise<ImageBitmap> {
+    const params = effectiveParams(look);
     const signal = opts.signal;
     const check = () => {
       if (signal?.aborted) throw abortError();
@@ -530,9 +532,10 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   async function exportPixels(
     src: SourceImage,
     l: Lut3D | null,
-    params: LookParams,
+    look: LookParams,
     opts: ExportPixelsOptions = {},
   ): Promise<RgbaImage> {
+    const params = effectiveParams(look);
     const signal = opts.signal;
     const check = () => {
       if (signal?.aborted) throw abortError();

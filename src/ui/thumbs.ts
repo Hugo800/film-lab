@@ -1,7 +1,7 @@
 // Kleine Vorschaubilder: Filmstreifen (aus der Datei, nacheinander) und Look-Kacheln (über die Engine).
 import { useEffect } from 'react';
 import { DEFAULT_PARAMS, type LookParams } from '../types';
-import { builtinEntries, defaultsFor, lutFor, NONE_ID } from './lookRegistry';
+import { builtinEntries, defaultsFor, lutFor, NONE_ID, recipeDefaultsOf, withLookDefaults } from './lookRegistry';
 import { getEngine } from './session';
 import { activePhoto, useStore } from './store';
 
@@ -42,6 +42,8 @@ interface ThumbJob {
   entryId: string;
   lutId: string;
   params: LookParams;
+  /** Eigene Rezepte: deren Werte sind die Vorgaben, an denen die Stärke misst. */
+  recipe?: Partial<LookParams>;
 }
 
 /** Alle Kacheln; die Gruppe des gewählten Looks zuerst. */
@@ -51,7 +53,7 @@ function jobs(): ThumbJob[] {
     { group: 'fujifilm', entryId: NONE_ID, lutId: NONE_ID, params: DEFAULT_PARAMS },
     ...builtinEntries().map((e) => ({ group: e.category, entryId: e.id, lutId: e.id, params: defaultsFor(e.id) })),
     ...s.customLuts.map((l) => ({ group: 'eigene', entryId: l.id, lutId: l.id, params: DEFAULT_PARAMS })),
-    ...s.presets.map((p) => ({ group: 'eigene', entryId: p.id, lutId: p.lookId, params: p.params })),
+    ...s.presets.map((p) => ({ group: 'eigene', entryId: p.id, lutId: p.lookId, params: p.params, recipe: recipeDefaultsOf(p.params) })),
   ];
   const lookId = activePhoto(s)?.settings.lookId;
   const first = list.find((j) => j.entryId === lookId)?.group;
@@ -95,7 +97,7 @@ export function useThumbnails() {
         if (key in useStore.getState().lookThumbs) continue;
         let url = '';
         try {
-          const bmp = await engine.renderThumbnail(lutFor(job.lutId), job.params, LOOK_EDGE);
+          const bmp = await engine.renderThumbnail(lutFor(job.lutId), withLookDefaults(job.lutId, job.params, job.recipe), LOOK_EDGE);
           if (cancelled) {
             bmp.close();
             return;

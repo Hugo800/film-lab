@@ -13,7 +13,7 @@ function checkRanges(p: LookParams): string[] {
     const v = p[k] as number;
     if (!(v >= lo && v <= hi) || (step && Math.abs(v / step - Math.round(v / step)) > 1e-9)) bad.push(`${k}=${v}`);
   };
-  range('strength', 0, 1);
+  range('strength', 0, 2);
   range('exposure', -2, 2);
   if (p.wbKelvin !== 0) range('wbKelvin', 2500, 10000, 10);
   range('wbShiftR', -9, 9, 1);

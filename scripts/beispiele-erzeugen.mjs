@@ -1,11 +1,11 @@
 // Beispielfotos der Startseite: node scripts/beispiele-erzeugen.mjs  (Port TEST_PORT, Vorgabe 5190)
-// 1. Verkleinert die drei freigegebenen Testfotos in Headless Chrome auf lange Kante 1600 px und kodiert sie per
+// 1. Verkleinert die vier freigegebenen Testfotos in Headless Chrome auf lange Kante 1600 px und kodiert sie per
 //    Canvas neu als JPEG, dazu Mini-Vorschauen für die Foto-Wahl (mini/*.jpg, 168×132 = 56×44 bei @3).
 // 2. Rechnet mit der echten Engine (Werkstatt der Startseite, Test-Dev-Server) das Titelbild (Klippen, halb
 //    Original, halb Velvia) und den Lupen-Ausschnitt (Klippen mit Portra 400 bei 100 %, mit Korn).
 // Die Neukodierung lässt EXIF, GPS und XMP weg; das sRGB-Profil, das Chrome als APP2 anhängt, streichen wir (sRGB
 // gilt ohne Profil ohnehin). Am Ende wird geprüft, dass kein APPn-Segment außer JFIF bleibt.
-// Nur diese drei Fotos dürfen öffentlich werden; andere Testbilder hier nie eintragen.
+// Nur diese vier Fotos dürfen öffentlich werden; andere Testbilder hier nie eintragen.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
 
@@ -13,8 +13,9 @@ const OUT = 'public/beispiele';
 // pos wie BEISPIELE in src/ui/start/werkstatt.ts (Ausschnitt der Mini-Vorschau).
 const PHOTOS = [
   { src: 'testbilder/DSC04866.JPEG', name: 'klippen', pos: [0.5, 0.5] },
-  { src: 'testbilder/DSC03427.JPEG', name: 'porsche', pos: [0.5, 0.74] },
+  { src: 'testbilder/IMG_0558.JPEG', name: 'skyline', pos: [0.1, 0.5] },
   { src: 'testbilder/DSC03982.JPEG', name: 'garten', pos: [0.42, 0.5] },
+  { src: 'testbilder/DSC03968.JPEG', name: 'hund', pos: [0.45, 0.35] },
 ];
 const EDGE = 1600;
 const MAX_BYTES = 350 * 1024;

@@ -173,10 +173,10 @@ export function Vergleich({
       {/* Bühne: Kopf, Rahmen und Chips passen zusammen auf einen Bildschirm („Looks ansehen“ scrollt hierher). */}
       <div id="looks-buehne" className="scroll-mt-4">
         <Kopf id="vergleich-titel" eyebrow="Vorher · Nachher" title="Ein Foto. Viele Filme.">
-          <span className="sm:hidden">Zieh den Teiler: links das Original aus der a6000, rechts der Look.</span>
+          <span className="sm:hidden">Zieh den Teiler: links das Original, rechts der Look.</span>
           <span className="hidden sm:inline">
-            Zieh den Teiler: links das Original aus der Sony a6000, rechts der Look – live gerechnet von derselben Engine wie
-            im Editor, direkt in deinem Browser.
+            Zieh den Teiler: links das Original, rechts der Look – live gerechnet von derselben Engine wie im Editor,
+            direkt in deinem Browser.
           </span>
         </Kopf>
 

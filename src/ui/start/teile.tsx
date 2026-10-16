@@ -54,7 +54,8 @@ export function FotoWahl({ value, onChange, className = '' }: { value: BeispielI
             aria-label={`Beispielfoto ${b.label}`}
             title={b.label}
             onClick={() => onChange(b.id)}
-            className={`relative h-11 w-14 overflow-hidden rounded-lg bg-raised transition ${
+            // Fokus: weiß und weiter außen, damit er sich von der Auswahl (Ring in Akzentfarbe) abhebt; nicht gedämpft.
+            className={`relative h-11 w-13 overflow-hidden rounded-lg bg-raised transition focus-visible:opacity-100 focus-visible:outline-white focus-visible:outline-offset-4 sm:w-14 ${
               on ? 'ring-2 ring-accent ring-offset-2 ring-offset-ink' : 'opacity-60 hover:opacity-100'
             }`}
           >

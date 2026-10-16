@@ -30,13 +30,13 @@ vec3 toEncoded(vec3 c) {
 // Stufe 1 (vor der LUT, linear): Belichtung + Weißabgleich als Matrix, dann Dynamikbereich.
 const DEVELOP = /* glsl */ `
 uniform mat3 uColorMat;
-uniform float uDR;      // 0 = DR100, 0,5 = DR200, 1 = DR400
+uniform float uDR;      // 0..2: 0 = DR100, 0,5 = DR200, 1 = DR400, darüber Stärke > 50 %
 uniform float uDRWhite; // Luminanz, die nach der Kompression Weiß wird (> 1 nur bei Plusbelichtung)
 
 // Wie DR200/DR400 (Kamera: knapper belichten, Kurve anheben): Mitteltöne bis 18 % Grau bleiben.
-// a) Plusbelichtung: Lichter bis uDRWhite (höchstens 2× bzw. 4×) weich unter Weiß gebracht
+// a) Plusbelichtung: Lichter bis uDRWhite (≤ 2^Belichtung, höchstens 16× bei DR1600) weich unter Weiß gebracht
 //    (x/(1+x/c), Steigung 1 am Knick) statt abgeschnitten.
-// b) Lichter weich abgesenkt, Weiß bleibt: y' = y − a·(1−K)·t²(1−t), t = (y−K)/(1−K), monoton für a ≤ 1.
+// b) Lichter weich abgesenkt, Weiß bleibt: y' = y − a·(1−K)·t²(1−t), t = (y−K)/(1−K), monoton für a ≤ 3.
 // Farbtonerhaltend über die Luminanz.
 vec3 dynRange(vec3 lin) {
   float y = dot(lin, LUMA);
@@ -152,13 +152,13 @@ uniform float uSplit;       // < 0: aus, sonst Anteil von links im Original
 uniform float uLineWidth;   // Teilungslinie in px
 uniform int uUseLut;
 uniform float uLutSize;
-uniform float uStrength;
+uniform float uStrength;   // 0..2, siehe Schritt 2
 uniform int uLab;           // 1 = Stufe 3/4 (Ton, Farbe, Color Chrome, Tönung, Klarheit, Schärfe) aktiv
 uniform float uToneH;       // Lichter-Ton (Kamera-Stufen)
 uniform float uToneS;       // Schatten-Ton
 uniform float uColor;       // Farbe (Kamera-Stufen)
-uniform float uCC;          // Color Chrome 0/1/2
-uniform float uCCBlue;      // Color Chrome FX Blau 0/1/2
+uniform float uCC;          // Color Chrome 0..4 (1 = Schwach, 2 = Stark)
+uniform float uCCBlue;      // Color Chrome FX Blau 0..4
 uniform vec2 uMono;         // Tönung (Warm/Kalt, Magenta/Grün) in Kamera-Stufen
 uniform float uClarity;     // Kamera-Stufen; 0 auch ohne Effektkarte
 uniform float uSharp;       // Kamera-Stufen
@@ -329,10 +329,20 @@ void main() {
     // 1) Entwicklung in linearem Licht
     vec3 lin = develop(src);
     vec3 c = toEncoded(lin);
-    // 2) Look
+    // 2) Look. Stärke ≤ 1: Mischung Original → LUT. Darüber verstärkt die LUT sich selbst: Mischung LUT → LUT(LUT),
+    // bei 2 also die LUT zweimal. Für kleine Änderungen δ ist das c + 2δ wie eine Extrapolation, bleibt aber im
+    // Farbraum der LUT (kein Clipping, keine Farbtonumkehr bei entsättigenden Looks wie SW oder Sepia). Grenzen:
+    // Eine LUT, die sich selbst wiedergibt (reines SW, Tönung), wird über 1 nicht stärker; bei eigenen LUTs mit
+    // kräftiger Kurve wirkt die Kurve zweimal, nicht doppelt so weit.
     if (uUseLut == 1) {
       vec3 tc = c * ((uLutSize - 1.0) / uLutSize) + 0.5 / uLutSize;
-      c = mix(c, texture(uLut, tc).rgb, uStrength);
+      if (uStrength <= 1.0) {
+        c = mix(c, texture(uLut, tc).rgb, uStrength);
+      } else {
+        vec3 l1 = texture(uLut, tc).rgb;
+        vec3 l2 = texture(uLut, l1 * ((uLutSize - 1.0) / uLutSize) + 0.5 / uLutSize).rgb;
+        c = mix(l1, l2, min(uStrength - 1.0, 1.0));
+      }
     }
     // 3) + 4) Bildeinstellungen in OKLab
     if (uLab == 1) {

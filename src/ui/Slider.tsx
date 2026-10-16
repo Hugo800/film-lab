@@ -17,6 +17,8 @@ interface Props {
   disabled?: boolean;
   /** Überschreibt den Vergleich mit dem Standardwert (z. B. Weißabgleich „Auto“ gegen Regler 5500 K). */
   changed?: boolean;
+  /** Markierung auf der Spur, z. B. „Rezept“ bei der Vorgabe des Stärke-Reglers. */
+  mark?: { value: number; label: string };
 }
 
 /** Füllung der Spur: von links, bei Reglern mit Mitte (min < 0) von der Mitte aus. */
@@ -26,7 +28,12 @@ function track(value: number, min: number, max: number): string {
   return `linear-gradient(90deg, var(--color-line) ${a}%, var(--color-accent) ${a}%, var(--color-accent) ${b}%, var(--color-line) ${b}%)`;
 }
 
-export function Slider({ id, label, hint, value, defaultValue, min, max, step, format, onChange, onReset, disabled, changed: changedProp }: Props) {
+/** Mitte des Reglerknopfs (24 px, siehe .regler in index.css) beim Wert v. */
+function thumbCenter(v: number, min: number, max: number): string {
+  return `calc(12px + (100% - 24px) * ${(v - min) / (max - min)})`;
+}
+
+export function Slider({ id, label, hint, value, defaultValue, min, max, step, format, onChange, onReset, disabled, changed: changedProp, mark }: Props) {
   const lastTap = useRef(0);
   const changed = changedProp ?? Math.abs(value - defaultValue) > step / 2;
 
@@ -49,19 +56,39 @@ export function Slider({ id, label, hint, value, defaultValue, min, max, step, f
             {format(value)}
           </output>
         </div>
-        <input
-          id={id}
-          className="regler block"
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          disabled={disabled}
-          style={{ '--track': track(value, min, max) } as React.CSSProperties}
-          onChange={(e) => onChange(Number(e.target.value))}
-          onDoubleClick={(e) => e.preventDefault()}
-        />
+        <div className="relative">
+          {mark && (
+            // Vor dem Regler im DOM: Spur und Knopf liegen darüber, der Strich ragt oben und unten heraus.
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-dim"
+              style={{ left: thumbCenter(mark.value, min, max) }}
+            />
+          )}
+          <input
+            id={id}
+            className="regler relative block"
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            disabled={disabled}
+            style={{ '--track': track(value, min, max) } as React.CSSProperties}
+            onChange={(e) => onChange(Number(e.target.value))}
+            onDoubleClick={(e) => e.preventDefault()}
+          />
+        </div>
+        {mark && (
+          <div className="relative mt-1 h-3 select-none" data-marke={mark.label}>
+            <span
+              className="absolute -translate-x-1/2 text-[10px] leading-3 text-dim"
+              style={{ left: thumbCenter(mark.value, min, max) }}
+            >
+              {mark.label}
+            </span>
+          </div>
+        )}
       </div>
       <button
         type="button"
@@ -69,7 +96,8 @@ export function Slider({ id, label, hint, value, defaultValue, min, max, step, f
         title="Auf Look-Standard zurücksetzen (Doppeltipp auf den Namen)"
         disabled={!changed || disabled}
         onClick={onReset}
-        className="-mb-1 inline-flex size-11 items-center justify-center rounded-full text-dim hover:bg-raised hover:text-fg disabled:invisible"
+        // Mit Markierung steht unter dem Regler noch deren Beschriftung (mt-1 + h-3): Knopf bleibt auf Höhe der Spur.
+        className={`${mark ? 'mb-3' : '-mb-1'} inline-flex size-11 items-center justify-center rounded-full text-dim hover:bg-raised hover:text-fg disabled:invisible`}
       >
         <RotateCcw size={16} />
       </button>

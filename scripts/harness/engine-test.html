@@ -252,6 +252,47 @@
   }
   const look = (id) => (id === 'identity' ? identityLut(33) : id ? (LOOKS.find((l) => l.id === id) ?? LOOKS[0])?.buildLut() ?? null : null);
 
+  // CIEDE2000 zweier sRGB-Bilder (mittel, 99. Perzentil); wie scripts/diag-staerke.html.
+  const RAD = Math.PI / 180;
+  function lab8(r, g, b) {
+    const R = lin8(r), G = lin8(g), B = lin8(b);
+    const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+    const fx = f((0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / 0.95047);
+    const fy = f(0.2126729 * R + 0.7151522 * G + 0.072175 * B);
+    const fz = f((0.0193339 * R + 0.119192 * G + 0.9503041 * B) / 1.08883);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
+  function dE2000([l1, a1, b1], [l2, a2, b2]) {
+    const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cm7 = ((C1 + C2) / 2) ** 7;
+    const G = 0.5 * (1 - Math.sqrt(Cm7 / (Cm7 + 6103515625)));
+    const a1p = (1 + G) * a1, a2p = (1 + G) * a2, C1p = Math.hypot(a1p, b1), C2p = Math.hypot(a2p, b2);
+    const hh = (b, a) => { const t = Math.atan2(b, a) / RAD; return t < 0 ? t + 360 : t; };
+    const h1 = C1p === 0 ? 0 : hh(b1, a1p), h2 = C2p === 0 ? 0 : hh(b2, a2p);
+    let dh = h2 - h1;
+    if (C1p * C2p === 0) dh = 0; else if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
+    const dH = 2 * Math.sqrt(C1p * C2p) * Math.sin((dh * RAD) / 2);
+    const Lm = (l1 + l2) / 2, Cmp = (C1p + C2p) / 2;
+    let hm = h1 + h2;
+    if (C1p * C2p !== 0) hm = Math.abs(h1 - h2) <= 180 ? hm / 2 : (hm + (hm < 360 ? 360 : -360)) / 2;
+    const T = 1 - 0.17 * Math.cos((hm - 30) * RAD) + 0.24 * Math.cos(2 * hm * RAD) + 0.32 * Math.cos((3 * hm + 6) * RAD) - 0.2 * Math.cos((4 * hm - 63) * RAD);
+    const dTh = 30 * Math.exp(-(((hm - 275) / 25) ** 2)), Cmp7 = Cmp ** 7;
+    const Rc = 2 * Math.sqrt(Cmp7 / (Cmp7 + 6103515625));
+    const Sl = 1 + (0.015 * (Lm - 50) ** 2) / Math.sqrt(20 + (Lm - 50) ** 2), Sc = 1 + 0.045 * Cmp, Sh = 1 + 0.015 * Cmp * T;
+    const x = (l2 - l1) / Sl, y = (C2p - C1p) / Sc, z = dH / Sh;
+    return Math.sqrt(Math.max(0, x * x + y * y + z * z - Math.sin(2 * dTh * RAD) * Rc * y * z));
+  }
+  function de2000(a, b) {
+    const n = a.length / 4, d = new Float32Array(n);
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      const j = i * 4;
+      d[i] = dE2000(lab8(a[j], a[j + 1], a[j + 2]), lab8(b[j], b[j + 1], b[j + 2]));
+      s += d[i];
+    }
+    d.sort();
+    return { mean: s / n, p99: d[Math.floor(n * 0.99)], max: d[n - 1] };
+  }
+
   window.T = {
     looks: () => LOOKS.map((l) => l.id),
     gpu: () => {
@@ -483,6 +524,28 @@
         })(),
         png: await stripPng([a, ours, b].map((im) => cropImg(im, 0, 0, im.width, im.height)), ['Referenz aus', 'Film Lab', 'Referenz stark']),
       };
+    },
+
+    // Stärke-Regler (LookParams.strength 0..2, lookDefaults = Vorgaben des Looks):
+    // a) s = 1 mit lookDefaults bitgleich zur Rechnung ohne (= wie vor dem Regler-Umbau),
+    // b) s = 0 ohne eigene Änderungen ≈ Original, c) Wirkung wächst mit s.
+    async strength(name, ids, maxEdge) {
+      const src = await load(name);
+      const orig = (await engine.exportPixels(src, null, P({}), { maxEdge })).data;
+      const out = [];
+      for (const id of ids) {
+        const l = LOOKS.find((x) => x.id === id);
+        const lut = l.buildLut();
+        const base = { ...l.defaults, lookDefaults: l.defaults };
+        const run = async (p) => (await engine.exportPixels(src, lut, P(p), { maxEdge })).data;
+        const alt = await run(l.defaults);
+        const s1 = await run({ ...base, strength: 1 });
+        const curve = [];
+        for (const s of [0, 0.5, 1.5, 2]) curve.push({ s, ...de2000(orig, await run({ ...base, strength: s })) });
+        curve.splice(2, 0, { s: 1, ...de2000(orig, s1) });
+        out.push({ id, name: l.name, s1VsAlt: diff(alt, s1), curve });
+      }
+      return out;
     },
 
     // renderRegion (100 %-Lupe) gegen denselben Ausschnitt aus exportPixels; Vorschau davor/danach unverändert.

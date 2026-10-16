@@ -1,5 +1,5 @@
 // Reine Rechenfunktionen der Engine (ohne WebGL), damit sie in Node testbar sind.
-import type { LookParams } from '../types';
+import { DEFAULT_PARAMS, type LookParams } from '../types';
 
 export interface Size {
   width: number;
@@ -152,16 +152,19 @@ export function toColumnMajor(m: Mat3): Float32Array {
   return new Float32Array([m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
 }
 
-/** Stärke der Lichterkompression für DR100/200/400 (siehe dynRange im Shader). */
-export function drStrength(dr: LookParams['dynamicRange']): number {
-  return dr === 400 ? 1 : dr === 200 ? 0.5 : 0;
+/**
+ * Stärke der Lichterkompression (siehe dynRange im Shader): DR100/200/400 → 0 / 0,5 / 1, dazwischen und darüber
+ * stetig je Blendenstufe (Stärke-Regler). Bis 2 bleibt die Kurve monoton (sie wäre es bis 3).
+ */
+export function drStrength(dr: number): number {
+  return Math.min(2, Math.max(0, Math.log2(dr / 100) / 2));
 }
 
 /**
  * Luminanz, die mit DR200/DR400 noch auf Weiß passt: Bei Plusbelichtung liegen die Lichter der
  * Quelle bei bis zu 2^EV; DR200 fängt eine, DR400 zwei Blendenstufen davon auf.
  */
-export function drWhite(p: Pick<LookParams, 'exposure' | 'dynamicRange'>): number {
+export function drWhite(p: { exposure: number; dynamicRange: number }): number {
   return Math.min(2 ** Math.max(0, p.exposure), p.dynamicRange / 100);
 }
 
@@ -245,4 +248,97 @@ export function leakSpecs(seed: number): LeakSpec[] {
  */
 export function grainLattice(size: LookParams['grainSize']): number {
   return size === 'gross' ? 2700 : 8000;
+}
+
+/**
+ * Korn-Amplitude je Größe und Stufe (Kodierwerte); abgestimmt an Fujis Grain Effect (scripts/abgleich-pipeline.mjs korn):
+ * σ ≈ 2,4 (schwach) / 6,1 (stark) in Mitteltönen bei 24 MP. „klein“ mittelt feinere Gitterpunkte, daher höherer Faktor.
+ */
+export const GRAIN_AMP = { klein: [0, 0.0171, 0.0432], gross: [0, 0.0105, 0.0264] };
+
+export function grainAmp(size: LookParams['grainSize'], level: number): number {
+  return GRAIN_AMP[size]?.[level] ?? 0;
+}
+
+/**
+ * Werte, mit denen die Engine rechnet: wie LookParams, aber die Stärke ist eingerechnet, und die Stufen
+ * (Dynamikbereich, Korn, Color Chrome) sind stetig.
+ */
+export interface EffectiveParams
+  extends Omit<LookParams, 'dynamicRange' | 'grainEffect' | 'colorChrome' | 'colorChromeBlue' | 'lookDefaults'> {
+  /** 100 · 2^Blendenstufen; 100/200/400 wie DR100/200/400. */
+  dynamicRange: number;
+  /** Korn-Amplitude (Kodierwerte, siehe GRAIN_AMP); die Korngröße bleibt grainSize. */
+  grain: number;
+  /** 0..4 (1 = Schwach, 2 = Stark). */
+  colorChrome: number;
+  colorChromeBlue: number;
+}
+
+type LinearKey =
+  | 'exposure' | 'wbShiftR' | 'wbShiftB' | 'highlightTone' | 'shadowTone' | 'color' | 'sharpness' | 'clarity'
+  | 'colorChrome' | 'colorChromeBlue' | 'monoWarmCool' | 'monoMagentaGreen' | 'halation' | 'vignette' | 'leak';
+
+/**
+ * Stetig skalierte Werte und ihre Grenzen. Werte über dem Kamerabereich sind erlaubt (Stärke > 1); begrenzt wird
+ * nur, wo die Rechnung sonst kippt: Ton ±4 (darüber nicht mehr monoton), Farbe ≥ −10 (Chroma-Faktor 0),
+ * Schärfe ≥ −4 (ganz weich), Klarheit ≥ −6 (bei −6,7 ist der lokale Kontrast aufgehoben), Extras ≥ 0.
+ */
+const LINEAR: [LinearKey, number, number][] = [
+  ['exposure', -Infinity, Infinity],
+  ['wbShiftR', -Infinity, Infinity],
+  ['wbShiftB', -Infinity, Infinity],
+  ['highlightTone', -4, 4],
+  ['shadowTone', -4, 4],
+  ['color', -10, Infinity],
+  ['sharpness', -4, Infinity],
+  ['clarity', -6, Infinity],
+  ['colorChrome', 0, 4],
+  ['colorChromeBlue', 0, 4],
+  ['monoWarmCool', -Infinity, Infinity],
+  ['monoMagentaGreen', -Infinity, Infinity],
+  ['halation', 0, 2],
+  ['vignette', 0, 1.25],
+  ['leak', 0, 1],
+];
+
+/** Auswahl bzw. Ein/Aus: Weicht der Nutzer von der Look-Vorgabe ab, gilt sein Wert unskaliert. */
+const ABSOLUTE = new Set<LinearKey>(['colorChrome', 'colorChromeBlue', 'halation', 'vignette', 'leak']);
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Weißabgleich in Mired; „Auto“ (0) ≙ Referenz 5500 K. */
+const mired = (kelvin: number) => 1e6 / (kelvin > 0 ? kelvin : WB_REFERENCE_K);
+
+/**
+ * Rechnet die Stärke s = p.strength in die Werte ein (einzige Stelle; Vorschau, Lupe, Kacheln und Export nutzen sie):
+ * wirksamer Wert = Nutzerwert − (1 − s) · (Look-Vorgabe − neutral). Neutral = DEFAULT_PARAMS.
+ * - s = 1 oder ohne `lookDefaults`: Werte unverändert (bitgleich zur Rechnung ohne Stärke).
+ * - s = 0 und keine eigenen Änderungen: alle Werte neutral, das Foto bleibt wie es ist.
+ * - Eigene Änderungen (Nutzerwert − Look-Vorgabe) wirken bei jeder Stärke voll.
+ * - Auswahl-Werte (Weißabgleich in Kelvin, Dynamikbereich, Korn, Color Chrome, Halation, Vignette, Leak) skalieren nur,
+ *   solange sie der Look-Vorgabe entsprechen; eine eigene Wahl gilt absolut (Korn „Aus“ bleibt aus, „Auto“ bleibt Auto).
+ * Weißabgleich in Mired, Dynamikbereich in Blendenstufen, Korn als Amplitude (Korngröße bleibt). Die LUT mischt der
+ * Shader mit derselben Stärke.
+ */
+export function effectiveParams(p: LookParams): EffectiveParams {
+  const { lookDefaults, grainEffect, ...rest } = p;
+  const out: EffectiveParams = { ...rest, grain: grainAmp(p.grainSize, grainEffect) };
+  const k = 1 - p.strength;
+  if (!lookDefaults || k === 0) return out;
+  const look: LookParams = { ...DEFAULT_PARAMS, ...lookDefaults };
+  const N = DEFAULT_PARAMS;
+  for (const [key, lo, hi] of LINEAR) {
+    const d = look[key] - N[key];
+    if (d !== 0 && (!ABSOLUTE.has(key) || p[key] === look[key])) out[key] = clamp(p[key] - k * d, lo, hi);
+  }
+  const dm = mired(look.wbKelvin) - mired(N.wbKelvin);
+  if (dm !== 0 && p.wbKelvin === look.wbKelvin) {
+    const m = mired(p.wbKelvin) - k * dm;
+    out.wbKelvin = Math.abs(m - mired(N.wbKelvin)) < 1e-6 ? 0 : 1e6 / clamp(m, 40, 600);
+  }
+  const dStops = Math.log2(look.dynamicRange / N.dynamicRange);
+  if (dStops !== 0 && p.dynamicRange === look.dynamicRange) out.dynamicRange = N.dynamicRange * 2 ** clamp(Math.log2(p.dynamicRange / N.dynamicRange) - k * dStops, 0, 4);
+  const dGrain = grainAmp(p.grainSize, look.grainEffect);
+  if (dGrain !== 0 && p.grainEffect === look.grainEffect) out.grain = Math.max(0, out.grain - k * dGrain);
+  return out;
 }

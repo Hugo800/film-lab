@@ -8,6 +8,9 @@ export function fmtSigned(v: number, decimals = 0): string {
 /** Ganze Prozent, ohne Vorzeichen (Stärke, Halation …). */
 export const fmtPercent = (v: number) => `${Math.round(v * 100)} %`;
 
+/** Stärke-Regler: Faktor s (0..2) als Prozent der Skala; 50 % = Look bzw. Rezept wie definiert (s = 1). */
+export const fmtStrength = (s: number) => `${Math.round(s * 50)} %`;
+
 /** Belichtung in Drittelstufen wie an der Kamera: „0 EV“, „+1/3 EV“, „−1 2/3 EV“. */
 export function fmtThirds(v: number): string {
   const t = Math.round(v * 3);

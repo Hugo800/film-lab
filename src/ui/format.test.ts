@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { fmtThirds } from './format';
+import { fmtStrength, fmtThirds } from './format';
+
+describe('fmtStrength', () => {
+  it('zeigt den Faktor als halbe Prozent: 0 = aus, 1 = Rezept (50 %), 2 = doppelt (100 %)', () => {
+    expect(fmtStrength(0)).toBe('0 %');
+    expect(fmtStrength(1)).toBe('50 %');
+    expect(fmtStrength(2)).toBe('100 %');
+    expect(fmtStrength(0.5)).toBe('25 %');
+    expect(fmtStrength(1.02)).toBe('51 %');
+  });
+});
 
 describe('fmtThirds', () => {
   it('zeigt Drittelstufen wie an der Kamera', () => {

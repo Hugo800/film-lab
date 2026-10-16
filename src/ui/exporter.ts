@@ -3,7 +3,7 @@
 import { loadFile } from '../io';
 import { EXPORT_IDLE, useStore, type ExportScope } from './store';
 import { exportNames } from './names';
-import { lutFor } from './lookRegistry';
+import { lutFor, withLookDefaults } from './lookRegistry';
 import { closeSource, describeError, getEngine, getSourceFor } from './session';
 import { buildZip } from './zip';
 
@@ -94,7 +94,7 @@ export async function startExport(scope: ExportScope) {
     try {
       if (!engine) throw new Error('Die Bildverarbeitung ist nicht verfügbar.');
       src ??= await loadFile(photo.file);
-      const blob = await engine.exportJpeg(src, lutFor(photo.settings.lookId), photo.settings.params, {
+      const blob = await engine.exportJpeg(src, lutFor(photo.settings.lookId), withLookDefaults(photo.settings.lookId, photo.settings.params, photo.settings.recipeDefaults), {
         quality: QUALITY,
         signal,
         onProgress: (f) => setExport({ fraction: (i + Math.min(1, Math.max(0, f))) / list.length }),

@@ -6,7 +6,7 @@ import { useStore } from './store';
 import { beispielInEditor } from './start/beispielLaden';
 import { Funktionen } from './start/Funktionen';
 import { WerkstattContext } from './start/hooks';
-import { LookUebersicht } from './start/LookUebersicht';
+import { LookRad } from './start/LookRad';
 import { RezeptBeispiel } from './start/RezeptBeispiel';
 import { Einblenden } from './start/teile';
 import { Vergleich } from './start/Vergleich';
@@ -97,7 +97,7 @@ export function StartView({ onPick }: { onPick: () => void }) {
           />
           <Vergleich photo={photo} onPhoto={setPhoto} look={look} onLook={setLook} onTry={tryIt} />
         </div>
-        <LookUebersicht photo={photo} onPhoto={setPhoto} />
+        <LookRad photo={photo} onPhoto={setPhoto} />
         <Funktionen />
         <RezeptBeispiel />
 

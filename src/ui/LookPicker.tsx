@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ClipboardPaste, FileUp, PackageOpen, X } from 'lucide-react';
 import { parseCube } from '../looks';
 import type { LookCategory } from '../types';
-import { fmtPercent } from './format';
+import { fmtStrength } from './format';
 import {
   builtinEntries,
   CATEGORY_LABELS,
@@ -143,7 +143,7 @@ function reveal(list: HTMLElement, el: Element) {
 export function LookPicker() {
   const fileInput = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  /** Per Chip gewählte Gruppe: bleibt aktiv, bis der Nutzer selbst in der Liste scrollt. */
+  /** Per Chip oder durch die Wahl eines Looks festgelegte Gruppe: bleibt aktiv, bis der Nutzer selbst in der Liste scrollt. */
   const pinned = useRef<LookCategory | null>(null);
   const [dialog, setDialog] = useState<'rezept' | 'originale' | null>(null);
   const [activeCat, setActiveCat] = useState<LookCategory>('fujifilm');
@@ -171,10 +171,14 @@ export function LookPicker() {
   const current = photo?.settings.lookId;
 
   // Gewählte Kachel zeigen: nach Look- oder Fotowechsel und beim Einblenden des Tabs.
+  // Aktiv ist dann die Gruppe des Looks. Nach dem Zentrieren steht am Listenanfang sonst oft noch das Ende
+  // der Vorgängergruppe („Portra 400“ unter „Leica“), am Listenende gar die letzte Gruppe.
   useEffect(() => {
     const list = listRef.current;
     const tile = list?.querySelector('button[aria-pressed="true"]');
-    pinned.current = null;
+    const cat = tile?.closest<HTMLElement>('section[data-cat]')?.dataset.cat as LookCategory | undefined;
+    pinned.current = cat ?? null;
+    if (cat) setActiveCat(cat);
     if (list && tile) reveal(list, tile);
   }, [current, photoId]);
 
@@ -354,9 +358,10 @@ export function LookPicker() {
             value={photo.settings.params.strength}
             defaultValue={defaultsFor(current).strength}
             min={0}
-            max={1}
-            step={0.01}
-            format={fmtPercent}
+            max={2}
+            step={0.02}
+            format={fmtStrength}
+            mark={{ value: defaultsFor(current).strength, label: 'Rezept' }}
             onChange={(v) => setParam('strength', v)}
             onReset={() => resetParam('strength')}
           />

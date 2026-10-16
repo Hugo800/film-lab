@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { AlertTriangle, MoveHorizontal } from 'lucide-react';
-import { builtinEntries, lutFor, NONE_ENTRY, NONE_ID } from './lookRegistry';
+import { builtinEntries, lutFor, NONE_ENTRY, NONE_ID, withLookDefaults } from './lookRegistry';
 import { getEngine, describeError, getSourceFor, startEngine } from './session';
 import { activePhoto, useStore, type CustomLut } from './store';
 import { Message, Spinner, Button } from './controls';
@@ -140,6 +140,7 @@ export function Preview() {
 
   const lookId = photo?.settings.lookId;
   const params = photo?.settings.params;
+  const recipe = photo?.settings.recipeDefaults;
   const photoId = photo?.id;
 
   useEffect(() => {
@@ -161,13 +162,13 @@ export function Preview() {
       const engine = getEngine();
       if (!engine) return;
       try {
-        engine.render(params, { showOriginal: held, split: compare ? split : undefined });
+        engine.render(withLookDefaults(lookId ?? NONE_ID, params, recipe), { showOriginal: held, split: compare ? split : undefined });
       } catch (err) {
         setRenderError(`Vorschau fehlgeschlagen: ${describeError(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [ready, params, held, compare, split, engineReady, source.version, size.w, size.h, lookId, zoom]);
+  }, [ready, params, recipe, held, compare, split, engineReady, source.version, size.w, size.h, lookId, zoom]);
 
   // --- 100-%-Lupe ---
   const k = zoomScale(stage.w, stage.h);
@@ -213,7 +214,7 @@ export function Preview() {
     setBusy(true);
     const timer = setTimeout(async () => {
       try {
-        const bmp = await engine.renderRegion(src, lutFor(lookId), params, rect, outW, outH, { showOriginal: held, signal: ac.signal });
+        const bmp = await engine.renderRegion(src, lutFor(lookId), withLookDefaults(lookId, params, recipe), rect, outW, outH, { showOriginal: held, signal: ac.signal });
         const canvas = zoomCanvasRef.current;
         if (ac.signal.aborted || !canvas) {
           bmp.close();
@@ -236,7 +237,7 @@ export function Preview() {
       clearTimeout(timer);
       ac.abort();
     };
-  }, [zoom, usable, params, lookId, photoId, held, center.x, center.y, viewW, viewH, imgW, imgH, source.version, lutEpoch, engineReady, patch]);
+  }, [zoom, usable, params, recipe, lookId, photoId, held, center.x, center.y, viewW, viewH, imgW, imgH, source.version, lutEpoch, engineReady, patch]);
 
   useEffect(() => {
     if (!zoom) lastZoomParams.current = null;

@@ -11,7 +11,7 @@
 ## Funktionen
 
 - **55 Looks.** 20 Fujifilm-Filmsimulationen (Provia, Velvia, Astia, Classic Chrome, Reala Ace, Pro Neg., Classic Neg., Nostalgic Neg., Eterna, Acros und Monochrom mit Filtern, Sepia u. a.), 18 Leica Looks (Standard, Vivid, Natural, Classic, Chrome, Teal, Cine, Selenium u. a.) und 17 Kodak-Filme als Fuji-Rezepte (Portra, Ektar, Gold, UltraMax, Kodachrome, Ektachrome, Vision3, CineStill 800T, Tri-X, T-Max u. a.). Alle sind nachempfunden, keine Originalprofile.
-- **Einstellungen wie im Fuji-Menü.** Dynamikbereich (DR100/200/400), Lichter und Schatten, Farbe, Schärfe, Klarheit, Weißabgleich mit Feinabstimmung, Korn (Stärke und Größe), Color Chrome Effect und FX Blue, Monochrom-Tönung. Dazu Belichtung und als Extras Halation, Vignette und Lichtlecks. Die Stärke des Looks lässt sich mit dem Original mischen.
+- **Einstellungen wie im Fuji-Menü.** Dynamikbereich (DR100/200/400), Lichter und Schatten, Farbe, Schärfe, Klarheit, Weißabgleich mit Feinabstimmung, Korn (Stärke und Größe), Color Chrome Effect und FX Blue, Monochrom-Tönung. Dazu Belichtung und als Extras Halation, Vignette und Lichtlecks. Der Stärke-Regler wirkt auf den ganzen Look samt Rezept-Einstellungen: 0 % ist das Original, 50 % der Look wie definiert, darüber wird er verstärkt; eigene Änderungen bleiben dabei voll erhalten.
 - **Rezepte einfügen.** Den Text eines Rezepts von [Fuji X Weekly](https://fujixweekly.com) einfügen: Film Lab stellt Look und Einstellungen ein und zeigt, was es nicht übernehmen kann. Eigene Rezepte und `.cube`-LUTs bleiben im Browser gespeichert.
 - **Offizielle Fujifilm-LUTs selbst laden (optional).** Für zehn Simulationen veröffentlicht Fujifilm eigene LUTs. Film Lab liefert sie nicht mit, weil sie Fujifilm gehören und laut Recherche nur für den persönlichen, nicht kommerziellen Gebrauch gedacht sind, ohne Abwandlung. Wer sie selbst bei Fujifilm lädt, bekommt die Looks noch näher am Original (siehe unten).
 - **100-%-Lupe, Gesten, Tastenkürzel.** Die Lupe rechnet den Ausschnitt wie der Export, mit Korn und Schärfe. Bedienung am Handy per Wischen, Halten und Doppeltipp, am PC per Tastatur und Mausrad.
@@ -50,7 +50,7 @@ Am Handy (393 × 852):
 <table>
   <tr>
     <td width="25%"><img src="docs/screenshots/start-handy.jpg" alt="Startseite am Handy"></td>
-    <td width="25%"><img src="docs/screenshots/editor-handy.jpg" alt="Editor am Handy mit Look-Kacheln, Porsche bei Nacht mit Vision3 500T"></td>
+    <td width="25%"><img src="docs/screenshots/editor-handy.jpg" alt="Editor am Handy mit Look-Kacheln, Skyline bei Nacht mit Vision3 500T"></td>
     <td width="25%"><img src="docs/screenshots/einstellungen-handy.jpg" alt="Fuji-Bildeinstellungen am Handy"></td>
     <td width="25%"><img src="docs/screenshots/rezept-handy.jpg" alt="Rezept einfügen am Handy"></td>
   </tr>
@@ -139,4 +139,4 @@ Film Lab ist eine statische Seite in einem nginx-Container auf einem eigenen Ser
 
 - **Drittanbieter:** Film Lab nutzt unter anderem LibRaw (LGPL-2.1 oder CDDL-1.0) für die RAW-Entwicklung, mozjpeg über `@jsquash/jpeg` (IJG, BSD-3-Clause, zlib; Wrapper Apache-2.0), `libraw-wasm` (ISC), fflate, React und zustand (MIT) sowie lucide-react (ISC). Hinweise und Quellen stehen in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), die vollständigen Lizenztexte in [`public/licenses.txt`](public/licenses.txt) und unter [lab.hugobarthelmess.de/licenses.txt](https://lab.hugobarthelmess.de/licenses.txt).
 - **Marken:** Fujifilm, Leica und Kodak sind Marken ihrer jeweiligen Inhaber. Film Lab steht in keiner Verbindung zu ihnen; die Looks sind Nachbildungen. Die offiziellen Fujifilm-LUTs gehören Fujifilm und sind nicht Teil dieses Repos.
-- **Beispielfotos** in `public/beispiele/` und `docs/screenshots/`: © Hugo Barthelmess. Sie sind verkleinert und ohne Metadaten. Alle Rechte vorbehalten; für den eigenen Code liegt noch keine Lizenzdatei bei.
+- **Beispielfotos** in `public/beispiele/` und `docs/screenshots/`: © Hugo Barthelmess. Sie sind verkleinert und ohne Aufnahmedaten (EXIF, GPS). Alle Rechte vorbehalten; für den eigenen Code liegt noch keine Lizenzdatei bei.

@@ -112,7 +112,23 @@ export function lutFor(id: string): Lut3D | null {
   return lut;
 }
 
-/** Look-Standardwerte; eigene LUTs und „Ohne“ starten bei DEFAULT_PARAMS. */
-export function defaultsFor(id: string): LookParams {
-  return { ...DEFAULT_PARAMS, ...lookById(id)?.defaults };
+/**
+ * Parameter für die Engine: mit den Vorgaben, an denen sie die Stärke misst (siehe LookParams.lookDefaults).
+ * `recipe` = Vorgaben eines eingefügten oder eigenen Rezepts (PhotoSettings.recipeDefaults), sonst die des Looks.
+ * Eigene LUTs und „Ohne“ haben ohne Rezept keine; dort skaliert die Stärke nur die LUT.
+ */
+export function withLookDefaults(id: string, params: LookParams, recipe?: Partial<LookParams>): LookParams {
+  const d = recipe ?? lookById(id)?.defaults;
+  return d ? { ...params, lookDefaults: d } : params;
+}
+
+/** Standardwerte: die des Looks bzw. des Rezepts; eigene LUTs und „Ohne“ starten bei DEFAULT_PARAMS. */
+export function defaultsFor(id: string, recipe?: Partial<LookParams>): LookParams {
+  return { ...DEFAULT_PARAMS, ...lookById(id)?.defaults, ...recipe };
+}
+
+/** Rezept-Vorgaben aus vollständigen Werten (Preset, eingefügtes Rezept): ohne Stärke und Lecksamen. */
+export function recipeDefaultsOf(params: LookParams): Partial<LookParams> {
+  const { strength: _s, leakSeed: _l, lookDefaults: _d, ...rest } = params;
+  return rest;
 }

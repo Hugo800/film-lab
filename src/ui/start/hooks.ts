@@ -3,25 +3,29 @@ import type { BeispielId, Werkstatt } from './werkstatt';
 
 export const WerkstattContext = createContext<Werkstatt | null>(null);
 
-/** Wird `true`, sobald das Element (mit Vorlauf `margin`) in Sicht kommt, und bleibt es. */
-export function useInView<T extends Element>(margin = '0px') {
+/**
+ * Wird `true`, sobald das Element (mit Vorlauf `margin`) in Sicht kommt, und bleibt es; mit `bleibt = false` folgt
+ * der Wert der aktuellen Sichtbarkeit (wieder `false`, wenn das Element außer Sicht ist).
+ */
+export function useInView<T extends Element>(margin = '0px', bleibt = true) {
   const ref = useRef<T>(null);
   const [seen, setSeen] = useState(false);
+  const fertig = bleibt && seen;
   useEffect(() => {
     const el = ref.current;
-    if (!el || seen) return;
+    if (!el || fertig) return;
     if (typeof IntersectionObserver === 'undefined') {
       setSeen(true);
       return;
     }
     // Wurzel ist der scrollende <main>: sonst schneidet dessen Rand alles ab, und der Vorlauf (rootMargin) wirkt nicht.
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setSeen(true), {
+    const io = new IntersectionObserver((entries) => setSeen((s) => (bleibt && s) || entries.at(-1)!.isIntersecting), {
       root: el.closest('main'),
       rootMargin: margin,
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [seen, margin]);
+  }, [fertig, margin, bleibt]);
   return [ref, seen] as const;
 }
 

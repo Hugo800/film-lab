@@ -1,11 +1,16 @@
 import { create } from 'zustand';
 import { type LookParams, type Lut3D } from '../types';
-import { builtinEntries, CATEGORY_ORDER, defaultsFor, NONE_ID, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
+import { builtinEntries, CATEGORY_ORDER, defaultsFor, NONE_ID, recipeDefaultsOf, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
 import { clearOfficialLuts, deleteStoredLut, savePresets, saveStoredLut, saveUseOfficial, type UserPreset } from './storage';
 
 export interface PhotoSettings {
   lookId: string;
   params: LookParams;
+  /**
+   * Vorgaben eines eingefügten Rezepts bzw. eigenen Rezepts (Preset). Sie gelten statt der Look-Vorgaben als „Rezept“:
+   * Daran misst die Stärke (0 % = Original) und darauf setzt Zurücksetzen. Fehlt = die Vorgaben des Looks.
+   */
+  recipeDefaults?: Partial<LookParams>;
 }
 
 export interface Photo {
@@ -224,7 +229,7 @@ export const useStore = create<State>()((set, get) => ({
       id: newId('p'),
       file,
       name: file.name,
-      settings: { lookId: base.lookId, params: { ...base.params } },
+      settings: { ...base, params: { ...base.params } },
       thumb: null,
     }));
     set({ photos: [...photos, ...added], activeId: activeId ?? added[0].id });
@@ -286,7 +291,9 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   applyPreset(preset) {
-    set((s) => updateActive(s, () => ({ lookId: preset.lookId, params: { ...preset.params } })));
+    set((s) =>
+      updateActive(s, () => ({ lookId: preset.lookId, params: { ...preset.params }, recipeDefaults: recipeDefaultsOf(preset.params) })),
+    );
   },
 
   applyRecipe(lookId, params) {
@@ -294,7 +301,8 @@ export const useStore = create<State>()((set, get) => ({
       updateActive(s, (cur) => {
         const id = lookId ?? cur.lookId;
         // Was das Rezept nicht nennt, bleibt beim Standard des Looks.
-        return { lookId: id, params: { ...defaultsFor(id), ...params, leakSeed: cur.params.leakSeed } };
+        const next = { ...defaultsFor(id), ...params, leakSeed: cur.params.leakSeed };
+        return { lookId: id, params: next, recipeDefaults: recipeDefaultsOf(next) };
       }),
     );
   },
@@ -305,12 +313,14 @@ export const useStore = create<State>()((set, get) => ({
 
   resetParam(key) {
     set((s) =>
-      updateActive(s, (cur) => ({ ...cur, params: { ...cur.params, [key]: defaultsFor(cur.lookId)[key] } })),
+      updateActive(s, (cur) => ({ ...cur, params: { ...cur.params, [key]: defaultsFor(cur.lookId, cur.recipeDefaults)[key] } })),
     );
   },
 
   resetAll() {
-    set((s) => updateActive(s, (cur) => ({ ...cur, params: { ...defaultsFor(cur.lookId), leakSeed: cur.params.leakSeed } })));
+    set((s) =>
+      updateActive(s, (cur) => ({ ...cur, params: { ...defaultsFor(cur.lookId, cur.recipeDefaults), leakSeed: cur.params.leakSeed } })),
+    );
   },
 
   rollLeak() {
@@ -326,7 +336,7 @@ export const useStore = create<State>()((set, get) => ({
       return;
     }
     remember(set, get, []);
-    set({ photos: photos.map((p) => ({ ...p, settings: { lookId: cur.lookId, params: { ...cur.params } } })) });
+    set({ photos: photos.map((p) => ({ ...p, settings: { ...cur, params: { ...cur.params } } })) });
     get().notify(`Look und Regler auf alle ${photos.length} Fotos übertragen`, 'info', { label: 'Rückgängig', run: () => get().undo() });
   },
 
