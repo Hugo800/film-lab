@@ -1,12 +1,45 @@
 import { useEffect, useRef } from 'react';
+import { ImagePlus } from 'lucide-react';
+import { parseCube } from '../looks';
 import { Editor } from './Editor';
 import { ExportDialog } from './ExportDialog';
 import { addPhotos } from './intake';
 import { registerCustomLut } from './lookRegistry';
+import { importOfficialLuts } from './officialLuts';
+import { describeError } from './session';
 import { StartView } from './StartView';
-import { loadOfficialLuts, loadPresets, loadStoredLuts, loadUseOfficial } from './storage';
+import { loadOfficialLuts, loadPresets, loadStoredLuts, loadUseOfficial, saveUseOfficial } from './storage';
 import { useStore } from './store';
 import { Toast } from './Toast';
+
+/** Abgelegte Dateien: ZIP = Fujifilm-LUTs, .cube = eigene LUT, der Rest geht als Foto an addPhotos. */
+async function dropFiles(files: File[]) {
+  const { notify } = useStore.getState();
+  const zips = files.filter((f) => /\.zip$/i.test(f.name));
+  const cubes = files.filter((f) => /\.cube$/i.test(f.name));
+  const rest = files.filter((f) => !zips.includes(f) && !cubes.includes(f));
+  if (rest.length > 0) addPhotos(rest);
+  if (zips.length > 0) {
+    try {
+      const { luts, stored } = await importOfficialLuts(zips, () => {});
+      useStore.getState().setOfficialLuts(luts, true);
+      saveUseOfficial(true);
+      notify(`${luts.size} Fujifilm-LUTs geladen` + (stored ? '' : ' – sie gelten nur bis zum Neuladen der Seite'));
+    } catch (err) {
+      notify(describeError(err), 'fehler');
+    }
+  }
+  for (const file of cubes) {
+    try {
+      const title = file.name.replace(/\.cube$/i, '');
+      const lut = parseCube(await file.text(), title);
+      const entry = useStore.getState().addCustomLut(lut.title || title, lut);
+      useStore.getState().setLook(entry.id);
+    } catch (err) {
+      notify(`Die LUT „${file.name}“ konnte nicht gelesen werden: ${describeError(err)}`, 'fehler');
+    }
+  }
+}
 
 export default function App() {
   const hasPhotos = useStore((s) => s.photos.length > 0);
@@ -48,7 +81,7 @@ export default function App() {
       e.preventDefault();
       depth = 0;
       set(false);
-      addPhotos(Array.from(e.dataTransfer?.files ?? []));
+      void dropFiles(Array.from(e.dataTransfer?.files ?? []));
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragover', over);
@@ -82,7 +115,8 @@ export default function App() {
         }}
       />
       {dragging && hasPhotos && (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center border-4 border-dashed border-accent bg-black/70 text-lg">
+        <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 border-4 border-dashed border-accent bg-black/70 text-lg">
+          <ImagePlus size={36} className="text-accent" aria-hidden />
           Zum Hinzufügen loslassen
         </div>
       )}

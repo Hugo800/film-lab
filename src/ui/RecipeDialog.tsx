@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
-import { findRecipeLook, parseRecipe, RECIPE_EXAMPLE } from './recipeText';
+import { ClipboardPaste } from 'lucide-react';
+import { findRecipeLook, LINK_MESSAGE, parseRecipe } from './recipeText';
 import { builtinEntries } from './lookRegistry';
 import { Button } from './controls';
 import { Dialog } from './Dialog';
 import { useStore } from './store';
+
+const PLACEHOLDER = 'Film Simulation: Classic Chrome\nDynamic Range: DR400 …';
 
 /** Rezepttext einfügen (Fuji-X-Weekly-Format), prüfen, anwenden und als eigenes Rezept speichern. */
 export function RecipeDialog({ onClose }: { onClose: () => void }) {
@@ -26,6 +29,13 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
   const apply = () => {
     applyRecipe(look?.id ?? null, parsed.params);
   };
+  const done = () => {
+    apply();
+    const n = parsed.applied.length;
+    const parts = [look?.name, n > 0 && `${n} ${n === 1 ? 'Einstellung' : 'Einstellungen'}`].filter(Boolean);
+    notify(`Rezept angewendet: ${parts.join(' + ')}`);
+    onClose();
+  };
   const save = () => {
     const n = shownName.trim().slice(0, 40);
     if (!n) return;
@@ -34,24 +44,50 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
     notify(`Rezept „${n}“ gespeichert – du findest es unter „Eigene“.`);
     onClose();
   };
+  const paste = () => {
+    navigator.clipboard.readText().then(
+      (t) => setText(t),
+      () => notify('Kein Zugriff auf die Zwischenablage – lange ins Feld tippen und „Einsetzen“ wählen.', 'fehler'),
+    );
+  };
 
   return (
-    <Dialog title="Rezept einfügen" onClose={onClose}>
+    <Dialog
+      title="Rezept einfügen"
+      onClose={onClose}
+      wide
+      dirty={text.length > 0}
+      footer={
+        <>
+          <Button variant="primary" disabled={!usable} onClick={done}>
+            Anwenden
+          </Button>
+          <Button variant="secondary" disabled={!usable || !shownName.trim()} onClick={save}>
+            Anwenden + speichern
+          </Button>
+        </>
+      }
+    >
       <div className="flex flex-col gap-3">
-        <p className="text-sm leading-relaxed text-dim">
-          Füge ein Fuji-Rezept ein (englisch, wie auf Fuji X Weekly). Film Lab liest Simulation, Weißabgleich, Korn, Color Chrome und die übrigen Einstellungen.
-        </p>
+        <p className="text-sm leading-relaxed text-dim">Rezepttext von Fuji X Weekly einfügen – Film Lab übernimmt, was passt.</p>
+        {typeof navigator.clipboard?.readText === 'function' && (
+          <Button variant="secondary" className="min-h-14" onClick={paste}>
+            <ClipboardPaste size={20} />
+            Aus Zwischenablage einfügen
+          </Button>
+        )}
         <textarea
           id="rezept-text"
+          data-autofocus={window.matchMedia('(pointer: fine)').matches ? '' : undefined}
           aria-label="Rezepttext"
           value={text}
-          rows={8}
+          rows={5}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           onChange={(e) => setText(e.target.value)}
-          placeholder={RECIPE_EXAMPLE}
-          className="min-h-40 w-full resize-y rounded-xl border border-line bg-ink p-3 font-mono text-base leading-snug text-fg placeholder:text-dim/50 lg:text-sm"
+          placeholder={PLACEHOLDER}
+          className="w-full resize-y rounded-xl border border-line bg-ink p-3 font-mono text-base leading-snug text-fg placeholder:text-dim/50 lg:text-sm"
         />
         {text.trim() && (
           <div aria-live="polite" className="flex flex-col gap-2 text-sm">
@@ -79,11 +115,11 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
                 </ul>
               </div>
             )}
-            {!usable && <p className="text-danger">Darin steht keine Einstellung, die Film Lab kennt.</p>}
+            {!usable && (parsed.link ? <p className="text-fg">{LINK_MESSAGE}</p> : <p className="text-danger">Darin steht keine Einstellung, die Film Lab kennt.</p>)}
           </div>
         )}
         <label className="flex flex-col gap-1.5 text-sm">
-          Name zum Speichern
+          Name zum Speichern (optional)
           <input
             id="rezept-name"
             value={shownName}
@@ -96,21 +132,6 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
             className="min-h-11 rounded-xl border border-line bg-ink px-3 text-base text-fg placeholder:text-dim/60"
           />
         </label>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            variant="secondary"
-            disabled={!usable}
-            onClick={() => {
-              apply();
-              onClose();
-            }}
-          >
-            Auf dieses Foto anwenden
-          </Button>
-          <Button variant="primary" disabled={!usable || !shownName.trim()} onClick={save}>
-            Als Rezept speichern
-          </Button>
-        </div>
       </div>
     </Dialog>
   );

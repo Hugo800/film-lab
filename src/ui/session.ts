@@ -98,8 +98,9 @@ export async function openPhoto(photo: Photo | null) {
   } catch (err) {
     if (mine !== token) return;
     pendingId = null;
+    const text = describeError(err);
     set({
-      source: { ...prev, status: 'fehler', photoId: photo.id, error: `„${photo.name}“ konnte nicht geladen werden: ${describeError(err)}` },
+      source: { ...prev, status: 'fehler', photoId: photo.id, error: text.includes(photo.name) ? text : `„${photo.name}“ konnte nicht geladen werden: ${text}` },
     });
     return;
   }

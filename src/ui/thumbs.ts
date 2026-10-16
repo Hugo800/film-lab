@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { DEFAULT_PARAMS, type LookParams } from '../types';
 import { builtinEntries, defaultsFor, lutFor, NONE_ID } from './lookRegistry';
 import { getEngine } from './session';
-import { useStore } from './store';
+import { activePhoto, useStore } from './store';
 
 const FILM_EDGE = 160;
 const LOOK_EDGE = 200;
@@ -37,19 +37,25 @@ export function queueFileThumb(photoId: string, file: File) {
 }
 
 interface ThumbJob {
+  /** Gruppe im Look-Picker („Ohne“ steht bei Fujifilm). */
+  group: string;
   entryId: string;
   lutId: string;
   params: LookParams;
 }
 
+/** Alle Kacheln; die Gruppe des gewählten Looks zuerst. */
 function jobs(): ThumbJob[] {
-  const { customLuts, presets } = useStore.getState();
-  return [
-    { entryId: NONE_ID, lutId: NONE_ID, params: DEFAULT_PARAMS },
-    ...builtinEntries().map((e) => ({ entryId: e.id, lutId: e.id, params: defaultsFor(e.id) })),
-    ...customLuts.map((l) => ({ entryId: l.id, lutId: l.id, params: DEFAULT_PARAMS })),
-    ...presets.map((p) => ({ entryId: p.id, lutId: p.lookId, params: p.params })),
+  const s = useStore.getState();
+  const list: ThumbJob[] = [
+    { group: 'fujifilm', entryId: NONE_ID, lutId: NONE_ID, params: DEFAULT_PARAMS },
+    ...builtinEntries().map((e) => ({ group: e.category, entryId: e.id, lutId: e.id, params: defaultsFor(e.id) })),
+    ...s.customLuts.map((l) => ({ group: 'eigene', entryId: l.id, lutId: l.id, params: DEFAULT_PARAMS })),
+    ...s.presets.map((p) => ({ group: 'eigene', entryId: p.id, lutId: p.lookId, params: p.params })),
   ];
+  const lookId = activePhoto(s)?.settings.lookId;
+  const first = list.find((j) => j.entryId === lookId)?.group;
+  return [...list.filter((j) => j.group === first), ...list.filter((j) => j.group !== first)];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

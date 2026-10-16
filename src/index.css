@@ -1,5 +1,12 @@
 @import 'tailwindcss';
 
+/* Seitenleisten-Layout: ab 800 px Breite oder am Handy quer (dann ist die Höhe knapp, nicht die Breite). */
+@custom-variant side {
+  @media (min-width: 800px), (orientation: landscape) and (max-height: 540px) {
+    @slot;
+  }
+}
+
 /* Ruhiges Dunkel: das Bild soll leuchten, nicht die Bedienelemente. */
 @theme {
   --color-ink: #0b0b0c;

@@ -4,7 +4,7 @@ import { RotateCcw } from 'lucide-react';
 interface Props {
   id: string;
   label: string;
-  /** Fuji-Begriff, klein hinter dem Namen. */
+  /** Fujifilm-Begriff, klein hinter dem Namen. */
   hint?: string;
   value: number;
   defaultValue: number;
@@ -38,12 +38,12 @@ export function Slider({ id, label, hint, value, defaultValue, min, max, step, f
   };
 
   return (
-    <div className="grid grid-cols-[1fr_44px] items-center">
+    <div className="grid grid-cols-[1fr_44px] items-end">
       <div>
         <div className="flex items-baseline justify-between pr-1 select-none" onPointerUp={onTap}>
           <label htmlFor={id} className="text-sm text-fg">
             {label}
-            {hint && <span className="ml-1.5 text-xs text-dim">({hint})</span>}
+            {hint && <span className="ml-1.5 text-xs text-dim/70">{hint}</span>}
           </label>
           <output htmlFor={id} className={`text-[13px] tabular-nums ${changed ? 'text-accent' : 'text-dim'}`}>
             {format(value)}
@@ -51,7 +51,7 @@ export function Slider({ id, label, hint, value, defaultValue, min, max, step, f
         </div>
         <input
           id={id}
-          className="regler"
+          className="regler block"
           type="range"
           min={min}
           max={max}
@@ -69,7 +69,7 @@ export function Slider({ id, label, hint, value, defaultValue, min, max, step, f
         title="Auf Look-Standard zurücksetzen (Doppeltipp auf den Namen)"
         disabled={!changed || disabled}
         onClick={onReset}
-        className="inline-flex size-11 items-center justify-center rounded-full text-dim hover:bg-raised hover:text-fg disabled:opacity-20"
+        className="-mb-1 inline-flex size-11 items-center justify-center rounded-full text-dim hover:bg-raised hover:text-fg disabled:invisible"
       >
         <RotateCcw size={16} />
       </button>

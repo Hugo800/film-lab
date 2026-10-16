@@ -43,13 +43,14 @@ const click = (pred) =>
     b?.click();
     return !!b;
   }, pred);
+// Wie in browser-test.mjs: Ist die Seite beim Rechnen blockiert, zählt die erste Antwort nach Ablauf der Frist.
 const waitFor = async (fn, ms = 20000) => {
-  const t = Date.now();
-  while (Date.now() - t < ms) {
+  const end = Date.now() + ms;
+  for (;;) {
     if (await page.evaluate(fn)) return true;
+    if (Date.now() >= end) return false;
     await sleep(150);
   }
-  return false;
 };
 const aria = (a) => `b.getAttribute('aria-label') === ${JSON.stringify(a)}`;
 
@@ -78,7 +79,8 @@ await sleep(200);
 ok(!(await page.evaluate(() => [...document.querySelectorAll('span.pointer-events-none')].some((s) => s.textContent === 'Original'))), 'Loslassen blendet „Original“ aus');
 
 // 3 Teiler
-await click(`b.getAttribute('aria-label')?.startsWith('Vorher-Nachher-Teiler einblenden')`);
+const COMPARE = aria('Vorher/Nachher vergleichen');
+await click(COMPARE);
 await sleep(300);
 const h = await (await page.$('[role=slider][aria-label="Vorher-Nachher-Teiler"]')).boundingBox();
 const frame = await (await page.$('[aria-label^="Vorschau"]')).boundingBox();
@@ -90,7 +92,8 @@ const v = await page.$eval('[role=slider]', (e) => Number(e.getAttribute('aria-v
 ok(Math.abs(v - 25) <= 3, 'Teiler lässt sich ziehen', `${v} %`);
 ok(!(await page.evaluate(() => [...document.querySelectorAll('span.pointer-events-none')].some((s) => s.textContent === 'Original'))), 'Greifen des Teilers löst kein „Original halten“ aus');
 await shot('3-teiler');
-await click(`b.getAttribute('aria-label')?.startsWith('Vorher-Nachher-Teiler ausblenden')`);
+await click(COMPARE);
+ok(await waitFor(() => !document.querySelector('[role=slider][aria-label="Vorher-Nachher-Teiler"]'), 2000), 'Vergleich lässt sich wieder ausschalten');
 
 // 4 Look wählen, Regler
 await click(`b.id === 'tab-looks'`);
@@ -98,7 +101,8 @@ await sleep(200);
 const lookNames = await page.$$eval('section[aria-label] button[aria-pressed][data-look]', (b) => b.map((x) => x.dataset.look));
 const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
 ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), 'Gruppen Fujifilm, Leica, Kodak, Eigene', groups.join(' | '));
-ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis sichtbar');
+// Der Markenhinweis steht in der Look-Liste nur in der Seitenleiste (PC), am Handy auf der Startseite.
+if (MODE === 'pc') ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
 ok(await page.evaluate(() => document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed]').length > 3), 'Fujifilm-Gruppe hat Looks');
 console.log('Looks:', lookNames.join(' | '));
 if (lookNames.length > 2) {
@@ -112,8 +116,10 @@ await sleep(200);
 const slider = await page.$('#regler-exposure');
 await slider.focus();
 for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
-const exp = () => page.$eval('#regler-exposure', (e) => Number(e.value));
-ok(Math.abs((await exp()) - 0.2) < 0.01, 'Belichtung per Tastatur geändert', String(await exp()));
+// Der Browser rastet 0 bei Schritt 1/3 ab −2 als −2e−16 ein; gemeint ist 0.
+const exp = () => page.$eval('#regler-exposure', (e) => Math.round(Number(e.value) * 1e9) / 1e9 || 0);
+ok(Math.abs((await exp()) - 4 / 3) < 0.01, 'Belichtung per Tastatur in Dritteln geändert', String(await exp()));
+ok((await text()).includes('+1 1/3 EV'), 'Belichtung zeigt „+1 1/3 EV“');
 await click(`b.getAttribute('aria-label') === 'Belichtung zurücksetzen'`);
 ok((await exp()) === 0, 'Reset-Knopf setzt Belichtung zurück');
 await slider.focus();
@@ -152,7 +158,7 @@ ok((await text()).includes('\u22123'), 'WB-Verschiebung Blau zeigt −3 (Minusze
 await page.focus('#regler-highlightTone');
 for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
 ok((await text()).includes('+1,5'), 'Lichter in 0,5-Schritten: +1,5');
-await click(aria('Verschiebung Blau zurücksetzen'));
+await click(aria('Gelb ↔ Blau zurücksetzen'));
 await shot('4b-segmente');
 
 // 5c Rezept einfügen
@@ -173,7 +179,7 @@ ok(dlg.includes('High ISO NR') && dlg.includes('Irgendwas') && dlg.includes('Nic
 ok(/Look:\s*Classic Chrome/.test(dlg), 'Rezept: Look „Classic Chrome“ erkannt');
 await shot('4d-rezept');
 await page.type('#rezept-name', 'Test-Chrome');
-await click(`b.textContent.trim() === 'Als Rezept speichern' && !!b.closest('[role=dialog]')`);
+await click(`b.textContent.trim() === 'Anwenden + speichern' && !!b.closest('[role=dialog]')`);
 await sleep(500);
 ok(await page.evaluate(() => !document.querySelector('[role=dialog]')), 'Rezept-Dialog schließt nach dem Speichern');
 await click(`b.id === 'tab-anpassen'`);
@@ -184,43 +190,43 @@ await sleep(1500);
 ok((await text()).includes('Test-Chrome'), 'Rezept „Test-Chrome“ unter „Eigene“');
 await shot('4e-rezept-gespeichert');
 
-// 5d Fujifilm-Originale
-await click(`b.textContent.includes('Originale laden')`);
+// 5d Fujifilm-LUTs
+await click(aria('Fuji-LUTs'));
 await page.waitForSelector('[role=dialog]');
 const od = await page.$eval('[role=dialog]', (d) => d.innerText);
-ok(od.includes('fujifilm-x.com') && od.includes('GFX ETERNA 55') && od.includes('nicht hochgeladen'), 'Originale: Erklärtext und Link');
-ok(await page.$eval('[role=dialog] a', (a) => a.href === 'https://www.fujifilm-x.com/support/download/lut/'), 'Originale: Link zeigt auf die Fujifilm-Seite');
+ok(od.includes('fujifilm-x.com') && od.includes('GFX ETERNA 55') && od.includes('nicht hochgeladen'), 'Fujifilm-LUTs: Erklärtext und Link');
+ok(await page.$eval('[role=dialog] a', (a) => a.href === 'https://www.fujifilm-x.com/support/download/lut/'), 'Fujifilm-LUTs: Link zeigt auf die Fujifilm-Seite');
 await shot('4f-originale');
 if (existsSync(ZIP)) {
   await (await page.$('input[data-testid=originale-datei]')).uploadFile(ZIP);
-  const done = await waitFor(() => /\d+ Originale? geladen/.test(document.querySelector('[role=dialog]')?.innerText ?? '') || !!document.querySelector('[role=dialog] [role=alert]'), 240000);
+  const done = await waitFor(() => /\d+ Fujifilm-LUTs? geladen/.test(document.querySelector('[role=dialog]')?.innerText ?? '') || !!document.querySelector('[role=dialog] [role=alert]'), 240000);
   const after = await page.$eval('[role=dialog]', (d) => d.innerText);
-  const loadedOk = done && /\d+ Originale? geladen/.test(after);
-  ok(loadedOk, 'Originale: ZIP eingelesen', after.replace(/\s+/g, ' ').slice(-200));
+  const loadedOk = done && /\d+ Fujifilm-LUTs? geladen/.test(after);
+  ok(loadedOk, 'Fujifilm-LUTs: ZIP eingelesen', after.replace(/\s+/g, ' ').slice(-200));
   await shot('4g-originale-geladen');
   if (loadedOk) {
-    ok(await page.$eval('#originale-verwenden', (e) => e.checked), 'Originale: „verwenden“ ist nach dem Laden an');
+    ok(await page.$eval('#originale-verwenden', (e) => e.checked), 'Fujifilm-LUTs: „verwenden“ ist nach dem Laden an');
     await click(aria('Schließen'));
     await sleep(300);
     await click(`b.id === 'tab-looks'`);
     await sleep(2500);
-    const badges = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Original').length);
-    ok(badges > 0, 'Fuji-Looks mit Original-LUT zeigen das Abzeichen', String(badges));
+    const badges = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Fuji-LUT').length);
+    ok(badges > 0, 'Fujifilm-Looks mit Fujifilm-LUT zeigen das Abzeichen „Fuji-LUT“', String(badges));
     await shot('4h-abzeichen');
     await page.reload({ waitUntil: 'networkidle0' });
     await (await page.$('#datei-eingabe')).uploadFile(...PHOTOS);
     await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
     await sleep(1500);
-    const badges2 = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Original').length);
-    ok(badges2 > 0, 'Originale überleben das Neuladen', String(badges2));
-    await click(`b.textContent.trim() === 'Originale'`);
+    const badges2 = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Fuji-LUT').length);
+    ok(badges2 > 0, 'Fujifilm-LUTs überleben das Neuladen', String(badges2));
+    await click(aria('Fuji-LUTs'));
     await page.waitForSelector('#originale-verwenden');
     await page.click('#originale-verwenden');
     await sleep(500);
-    ok(!(await page.$eval('#originale-verwenden', (e) => e.checked)), 'Schalter „Originale verwenden“ lässt sich ausschalten');
+    ok(!(await page.$eval('#originale-verwenden', (e) => e.checked)), 'Schalter „Fujifilm-LUTs verwenden“ lässt sich ausschalten');
     await click(`b.textContent.includes('entfernen')`);
     await sleep(300);
-    ok(!(await page.evaluate(() => !!document.querySelector('#originale-verwenden'))), 'Originale lassen sich entfernen');
+    ok(!(await page.evaluate(() => !!document.querySelector('#originale-verwenden'))), 'Fujifilm-LUTs lassen sich entfernen');
   }
   if (await page.evaluate(() => !!document.querySelector('[role=dialog]'))) await click(aria('Schließen'));
 } else console.log('SKIP Originale-ZIP nicht vorhanden');
@@ -244,15 +250,24 @@ await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.vi
 await click(`b.id === 'tab-anpassen'`);
 const leak1 = await page.$eval('#regler-leak', (e) => Number(e.value));
 ok(leak1 > 0.15, 'Foto 1 behält seine Einstellungen', `Light Leak ${leak1}`);
-await click(`b.getAttribute('aria-label')?.startsWith('Einstellungen dieses Fotos auf alle')`);
-await click(`b.getAttribute('aria-label')?.startsWith('Foto 2 von 2')`);
+const showPhoto2 = async () => {
+  await click(`b.getAttribute('aria-label')?.startsWith('Foto 2 von 2')`);
+  await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
+  await click(`b.id === 'tab-anpassen'`);
+  return page.$eval('#regler-leak', (e) => Number(e.value));
+};
+await click(`b.textContent.trim() === 'Auf alle'`);
+ok(await click(`b.textContent.trim() === 'Rückgängig'`), '„Auf alle“: Toast bietet „Rückgängig“');
+await sleep(300);
+ok((await showPhoto2()) === leak2, '„Rückgängig“ stellt die Einstellungen von Foto 2 wieder her');
+await click(`b.getAttribute('aria-label')?.startsWith('Foto 1 von 2')`);
 await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
-await click(`b.id === 'tab-anpassen'`);
-ok((await page.$eval('#regler-leak', (e) => Number(e.value))) > 0.15, '„Auf alle anwenden“ übernimmt die Einstellungen');
+await click(`b.textContent.trim() === 'Auf alle'`);
+ok((await showPhoto2()) > 0.15, '„Auf alle“ übernimmt die Einstellungen');
 
 // 7 Preset und LUT
 await click(`b.id === 'tab-anpassen'`);
-await click(`b.textContent.includes('Als Rezept speichern')`);
+await click(`b.textContent.trim() === 'Rezept speichern'`);
 await page.waitForSelector('[role=dialog] input');
 await page.type('[role=dialog] input', 'Mein Test');
 await click(`b.textContent.trim() === 'Speichern'`);
@@ -292,12 +307,12 @@ await sleep(400);
 await shot('7-export-laeuft');
 ok(await page.evaluate(() => !!document.querySelector('[role=progressbar]')), 'Fortschrittsanzeige sichtbar');
 await click(`b.textContent.trim() === 'Abbrechen'`);
-ok(await waitFor(() => document.body.innerText.includes('Abgebrochen')), 'Export lässt sich abbrechen');
+ok(await waitFor(() => document.body.innerText.includes('Export abgebrochen')), 'Export lässt sich abbrechen');
 await click(`b.textContent.trim() === 'Schließen'`);
 await openExport();
 await page.evaluate(() => document.querySelectorAll('input[name=umfang]')[1]?.click());
 await click(`b.textContent.trim() === 'Exportieren' && !!b.closest('[role=dialog]')`);
-ok(await waitFor(() => document.body.innerText.includes('Fertig'), 120000), 'Export von 2 Fotos fertig');
+ok(await waitFor(() => document.body.innerText.includes('Export fertig'), 120000), 'Export von 2 Fotos fertig');
 await sleep(800);
 await shot('8-export-fertig');
 const body = await text();
@@ -316,12 +331,28 @@ const files = readdirSync(DL).filter((f) => !f.endsWith('.crdownload'));
 ok(files.some((f) => f.endsWith('.zip')), 'ZIP heruntergeladen', files.map((f) => `${f} ${statSync(resolve(DL, f)).size} B`).join(', '));
 await click(`b.textContent.trim() === 'Schließen'`);
 
-// 9 Foto entfernen bis zur Startansicht
-for (let i = 0; i < 4; i++) {
-  if (!(await click(`b.getAttribute('aria-label') === 'Aktuelles Foto entfernen'`))) break;
+// 9 Foto entfernen (× am aktiven Bild, beim letzten die Taste Entf) bis zur Startansicht, mit Rückgängig
+const order = () => page.$$eval('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "][aria-current]', (b) => b.map((x) => `${x.getAttribute('aria-label')}|${x.getAttribute('aria-current')}`));
+const before9 = await order();
+await click(aria('Foto entfernen'));
+await sleep(300);
+ok((await order()).length === 0, 'Entfernen per × (danach ein Foto, kein Filmstreifen)');
+await click(`b.textContent.trim() === 'Rückgängig'`);
+ok(await waitFor(() => document.querySelectorAll('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "][aria-current]').length === 2, 3000), 'Rückgängig nach dem Entfernen');
+ok(JSON.stringify(await order()) === JSON.stringify(before9), 'Rückgängig: gleiche Reihenfolge und aktives Foto', (await order()).join(', '));
+for (let i = 0; i < 4 && !(await text()).includes('Fotos wählen'); i++) {
+  if (!(await click(aria('Foto entfernen')))) {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Delete');
+  }
   await sleep(300);
 }
 ok((await text()).includes('Fotos wählen'), 'Alle Fotos entfernt → Startansicht');
+ok(await click(`b.textContent.trim() === 'Rückgängig'`), 'Startansicht bietet „Rückgängig“ für das letzte Foto');
+ok(await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible', 30000), 'Letztes Foto per Rückgängig zurück');
+await page.evaluate(() => document.activeElement?.blur());
+await page.keyboard.press('Delete');
+ok(await waitFor(() => document.body.innerText.includes('Fotos wählen'), 3000), 'Entf entfernt das letzte Foto');
 if (!(await text()).includes('Fotos wählen')) { await shot('9-entfernen'); console.log((await text()).slice(0, 300)); }
 
 // 10 Trefferflächen

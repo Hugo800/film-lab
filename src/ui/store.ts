@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { type LookParams, type Lut3D } from '../types';
-import { builtinEntries, defaultsFor, NONE_ID, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
+import { builtinEntries, CATEGORY_ORDER, defaultsFor, NONE_ID, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
 import { clearOfficialLuts, deleteStoredLut, savePresets, saveStoredLut, saveUseOfficial, type UserPreset } from './storage';
 
 export interface PhotoSettings {
@@ -36,10 +36,16 @@ export interface SourceState {
   error?: string;
 }
 
+export interface NoticeAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Notice {
   id: number;
   text: string;
   kind: 'info' | 'fehler';
+  action?: NoticeAction;
 }
 
 export type ExportScope = 'aktuell' | 'alle';
@@ -93,6 +99,8 @@ interface State {
   tab: Tab;
   panelOpen: boolean;
   compare: boolean;
+  /** 100-%-Lupe auf der Bühne. */
+  zoom: boolean;
   split: number;
   engineReady: boolean;
   engineError: string | null;
@@ -107,6 +115,8 @@ interface State {
   /** Look-Kacheln: Schlüssel `${photoId}|${entryId}` → Object-URL ('' = fehlgeschlagen). */
   lookThumbs: Record<string, string>;
   notice: Notice | null;
+  /** Stand vor dem letzten Entfernen bzw. „Auf alle“, solange Rückgängig angeboten wird. */
+  undoState: UndoState | null;
   export: ExportUi;
   dragging: boolean;
 
@@ -115,6 +125,8 @@ interface State {
   removePhoto(id: string): void;
   setPhotoThumb(id: string, url: string): void;
   setLook(lookId: string): void;
+  /** Nächster/vorheriger Look: „Ohne“, eingebaute Looks, eigene LUTs (ohne Rezepte). */
+  stepLook(dir: 1 | -1): void;
   applyPreset(preset: UserPreset): void;
   /** Rezept aus Text: Look (falls erkannt) und Parameter auf das aktive Foto. */
   applyRecipe(lookId: string | null, params: Partial<LookParams>): void;
@@ -123,6 +135,7 @@ interface State {
   resetAll(): void;
   rollLeak(): void;
   applyToAll(): void;
+  undo(): void;
   addCustomLut(name: string, lut: Lut3D): CustomLut;
   removeCustomLut(id: string): void;
   setCustomLuts(list: CustomLut[]): void;
@@ -133,9 +146,37 @@ interface State {
   setUseOfficial(use: boolean): void;
   removeOfficialLuts(): void;
   setLookThumb(key: string, url: string): void;
-  notify(text: string, kind?: Notice['kind']): void;
+  notify(text: string, kind?: Notice['kind'], action?: NoticeAction): void;
   dismissNotice(): void;
   patch(partial: Partial<State>): void;
+}
+
+interface UndoState {
+  photos: Photo[];
+  activeId: string | null;
+  /** Filmstreifen-Bilder, die erst nach Ablauf freigegeben werden. */
+  thumbs: string[];
+}
+
+/** So lange bietet der Toast „Rückgängig“ an. */
+export const UNDO_MS = 8000;
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Merkt den Stand für „Rückgängig“; ein älterer Stand verfällt sofort. */
+function remember(set: (p: Partial<State>) => void, get: () => State, thumbs: string[]) {
+  dropUndo(get);
+  const { photos, activeId } = get();
+  set({ undoState: { photos, activeId, thumbs } });
+  undoTimer = setTimeout(() => dropUndo(get), UNDO_MS);
+}
+
+function dropUndo(get: () => State) {
+  clearTimeout(undoTimer);
+  const u = get().undoState;
+  if (!u) return;
+  const live = new Set(get().photos.map((p) => p.thumb));
+  for (const url of u.thumbs) if (!live.has(url)) URL.revokeObjectURL(url);
+  useStore.setState({ undoState: null });
 }
 
 const emptySource: SourceState = { status: 'leer', photoId: null, width: 0, height: 0, version: 0 };
@@ -152,6 +193,7 @@ export const useStore = create<State>()((set, get) => ({
   tab: 'looks',
   panelOpen: true,
   compare: false,
+  zoom: false,
   split: 0.5,
   engineReady: false,
   engineError: null,
@@ -163,14 +205,19 @@ export const useStore = create<State>()((set, get) => ({
   lutEpoch: 0,
   lookThumbs: {},
   notice: null,
+  undoState: null,
   export: EXPORT_IDLE,
   dragging: false,
 
   addFiles(files) {
     const accepted = files.filter(looksLikeImage);
-    const skipped = files.length - accepted.length;
-    if (skipped > 0) get().notify(`${skipped} ${skipped === 1 ? 'Datei ist kein Foto' : 'Dateien sind keine Fotos'} und wurde übersprungen.`, 'fehler');
+    const skipped = files.filter((f) => !looksLikeImage(f)).map((f) => f.name);
+    if (skipped.length === 1) get().notify(`„${skipped[0]}“ ist kein Foto und wurde übersprungen.`, 'fehler');
+    else if (skipped.length > 1)
+      get().notify(`${skipped.length} Dateien übersprungen: ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? ' …' : ''}`, 'fehler');
     if (accepted.length === 0) return;
+    // Neue Fotos machen den gemerkten Stand ungültig.
+    dropUndo(get);
     const { photos, activeId } = get();
     const base = photos.find((p) => p.id === activeId)?.settings ?? initialSettings();
     const added: Photo[] = accepted.map((file) => ({
@@ -183,14 +230,15 @@ export const useStore = create<State>()((set, get) => ({
     set({ photos: [...photos, ...added], activeId: activeId ?? added[0].id });
   },
 
-  selectPhoto: (id) => set({ activeId: id }),
+  selectPhoto: (id) => set({ activeId: id, zoom: false }),
 
   removePhoto(id) {
     const { photos, activeId, lookThumbs } = get();
     const idx = photos.findIndex((p) => p.id === id);
     if (idx < 0) return;
     const gone = photos[idx];
-    if (gone.thumb) URL.revokeObjectURL(gone.thumb);
+    // Das Filmstreifen-Bild bleibt für „Rückgängig“ erhalten.
+    remember(set, get, gone.thumb ? [gone.thumb] : []);
     const kept: Record<string, string> = {};
     for (const [key, url] of Object.entries(lookThumbs)) {
       if (key.startsWith(`${id}|`)) {
@@ -199,7 +247,8 @@ export const useStore = create<State>()((set, get) => ({
     }
     const rest = photos.filter((p) => p.id !== id);
     const nextActive = activeId === id ? (rest[Math.min(idx, rest.length - 1)]?.id ?? null) : activeId;
-    set({ photos: rest, activeId: nextActive, lookThumbs: kept });
+    set({ photos: rest, activeId: nextActive, lookThumbs: kept, zoom: false });
+    get().notify('Foto entfernt', 'info', { label: 'Rückgängig', run: () => get().undo() });
   },
 
   setPhotoThumb(id, url) {
@@ -219,6 +268,21 @@ export const useStore = create<State>()((set, get) => ({
         params: { ...defaultsFor(lookId), leakSeed: cur.params.leakSeed },
       })),
     );
+  },
+
+  stepLook(dir) {
+    const s = get();
+    const cur = activePhoto(s)?.settings.lookId;
+    if (cur === undefined) return;
+    const builtin = builtinEntries();
+    const order = [
+      NONE_ID,
+      ...CATEGORY_ORDER.flatMap((c) => builtin.filter((e) => e.category === c).map((e) => e.id)),
+      ...s.customLuts.map((l) => l.id),
+    ];
+    const i = order.indexOf(cur);
+    const next = order[(i < 0 ? 0 : i + dir + order.length) % order.length];
+    if (next !== cur) s.setLook(next);
   },
 
   applyPreset(preset) {
@@ -257,8 +321,21 @@ export const useStore = create<State>()((set, get) => ({
     const { photos, activeId } = get();
     const cur = photos.find((p) => p.id === activeId)?.settings;
     if (!cur) return;
+    if (photos.length < 2) {
+      get().notify('Nur ein Foto geladen.');
+      return;
+    }
+    remember(set, get, []);
     set({ photos: photos.map((p) => ({ ...p, settings: { lookId: cur.lookId, params: { ...cur.params } } })) });
-    get().notify(photos.length > 1 ? `Einstellungen auf alle ${photos.length} Fotos angewendet.` : 'Nur ein Foto geladen.');
+    get().notify(`Look und Regler auf alle ${photos.length} Fotos übertragen`, 'info', { label: 'Rückgängig', run: () => get().undo() });
+  },
+
+  undo() {
+    const u = get().undoState;
+    if (!u) return;
+    clearTimeout(undoTimer);
+    // Look-Kacheln eines wiederhergestellten Fotos rechnet useThumbnails neu.
+    set({ photos: u.photos, activeId: u.activeId, undoState: null, notice: null, zoom: false });
   },
 
   addCustomLut(name, lut) {
@@ -352,8 +429,8 @@ export const useStore = create<State>()((set, get) => ({
     set((s) => ({ lookThumbs: { ...s.lookThumbs, [key]: url } }));
   },
 
-  notify(text, kind = 'info') {
-    set({ notice: { id: ++noticeCounter, text, kind } });
+  notify(text, kind = 'info', action) {
+    set({ notice: { id: ++noticeCounter, text, kind, action } });
   },
 
   dismissNotice: () => set({ notice: null }),

@@ -1,15 +1,15 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Bookmark, Dices, RotateCcw } from 'lucide-react';
 import type { Level } from '../types';
-import { fmtPercent, fmtSigned } from './format';
-import { defaultsFor, isMonochrome, NONE_ID } from './lookRegistry';
+import { fmtPercent, fmtSigned, fmtThirds } from './format';
+import { builtinEntries, defaultsFor, isMonochrome, NONE_ENTRY, NONE_ID } from './lookRegistry';
 import { Button } from './controls';
 import { Dialog } from './Dialog';
 import { Segmented } from './Segmented';
 import { Slider } from './Slider';
 import { activePhoto, useStore } from './store';
 
-type NumKey = 'strength' | 'exposure' | 'wbKelvin' | 'wbShiftR' | 'wbShiftB' | 'highlightTone' | 'shadowTone' | 'color' | 'sharpness' | 'clarity' | 'monoWarmCool' | 'monoMagentaGreen' | 'halation' | 'vignette' | 'leak';
+type NumKey = 'exposure' | 'wbKelvin' | 'wbShiftR' | 'wbShiftB' | 'highlightTone' | 'shadowTone' | 'color' | 'sharpness' | 'clarity' | 'monoWarmCool' | 'monoMagentaGreen' | 'halation' | 'vignette' | 'leak';
 
 type SegKey = 'dynamicRange' | 'grainEffect' | 'grainSize' | 'colorChrome' | 'colorChromeBlue';
 
@@ -31,8 +31,8 @@ const slider = (key: NumKey, label: string, hint: string | undefined, min: numbe
 });
 
 const WB_SHIFT = [
-  slider('wbShiftR', 'Verschiebung Rot', 'WB Shift R', -9, 9, 1, int),
-  slider('wbShiftB', 'Verschiebung Blau', 'WB Shift B', -9, 9, 1, int),
+  slider('wbShiftR', 'Cyan ↔ Rot', 'WB Shift R', -9, 9, 1, int),
+  slider('wbShiftB', 'Gelb ↔ Blau', 'WB Shift B', -9, 9, 1, int),
 ];
 const TONE = [
   slider('highlightTone', 'Lichter', 'Highlight Tone', -2, 4, 0.5, half),
@@ -41,12 +41,11 @@ const TONE = [
 const COLOR = slider('color', 'Farbe', 'Color', -4, 4, 1, int);
 const DETAIL = [slider('sharpness', 'Schärfe', 'Sharpness', -4, 4, 1, int), slider('clarity', 'Klarheit', 'Clarity', -5, 5, 1, int)];
 const MONO = [
-  slider('monoWarmCool', 'Tönung warm ↔ kalt', 'WC', -18, 18, 1, int),
-  slider('monoMagentaGreen', 'Tönung Magenta ↔ Grün', 'MG', -18, 18, 1, int),
+  slider('monoWarmCool', 'Tönung kalt ↔ warm', 'WC', -18, 18, 1, int),
+  slider('monoMagentaGreen', 'Tönung Grün ↔ Magenta', 'MG', -18, 18, 1, int),
 ];
+const EXPOSURE = slider('exposure', 'Belichtung', undefined, -2, 2, 1 / 3, fmtThirds);
 const EXTRAS = [
-  slider('strength', 'Stärke', undefined, 0, 1, 0.01, fmtPercent),
-  slider('exposure', 'Belichtung', undefined, -2, 2, 0.05, (v) => `${fmtSigned(v, 2)} EV`),
   slider('halation', 'Halation', undefined, 0, 1, 0.01, fmtPercent),
   slider('vignette', 'Vignette', undefined, 0, 1, 0.01, fmtPercent),
   slider('leak', 'Light Leak', undefined, 0, 1, 0.01, fmtPercent),
@@ -76,8 +75,21 @@ function PresetDialog({ onClose }: { onClose: () => void }) {
     onClose();
   };
   return (
-    <Dialog title="Als Rezept speichern" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-4">
+    <Dialog
+      title="Als Rezept speichern"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="primary" type="submit" form="rezept-speichern" disabled={!name.trim()}>
+            Speichern
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Abbrechen
+          </Button>
+        </>
+      }
+    >
+      <form id="rezept-speichern" onSubmit={submit} className="flex flex-col gap-4">
         <p className="text-sm text-dim">Speichert Look und alle Einstellungen dieses Fotos unter „Eigene“.</p>
         <label className="flex flex-col gap-1.5 text-sm">
           Name
@@ -90,14 +102,6 @@ function PresetDialog({ onClose }: { onClose: () => void }) {
             className="min-h-11 rounded-xl border border-line bg-ink px-3 text-base text-fg placeholder:text-dim/60"
           />
         </label>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Abbrechen
-          </Button>
-          <Button variant="primary" type="submit" disabled={!name.trim()}>
-            Speichern
-          </Button>
-        </div>
       </form>
     </Dialog>
   );
@@ -113,14 +117,21 @@ export function Adjust() {
   const resetParam = useStore((s) => s.resetParam);
   const resetAll = useStore((s) => s.resetAll);
   const rollLeak = useStore((s) => s.rollLeak);
+  const customLuts = useStore((s) => s.customLuts);
   const [saving, setSaving] = useState(false);
+  const entries = useMemo(() => builtinEntries(), []);
   if (!photo) return null;
   const { lookId, params } = photo.settings;
   const defaults = defaultsFor(lookId);
-  const noLut = lookId === NONE_ID;
   const mono = isMonochrome(lookId);
+  const lookName = lookId === NONE_ID ? NONE_ENTRY.name : (entries.find((e) => e.id === lookId) ?? customLuts.find((l) => l.id === lookId))?.name ?? '';
+  const anyChanged = (Object.keys(defaults) as (keyof typeof defaults)[]).some((k) => {
+    if (k === 'leakSeed') return false;
+    const a = params[k], b = defaults[k];
+    return typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) > 1e-6 : a !== b;
+  });
 
-  const renderSlider = (s: SliderDef, extra?: { disabled?: boolean }) => (
+  const renderSlider = (s: SliderDef) => (
     <Slider
       key={s.key}
       id={`regler-${s.key}`}
@@ -132,14 +143,13 @@ export function Adjust() {
       max={s.max}
       step={s.step}
       format={s.format}
-      disabled={extra?.disabled}
       onChange={(v) => setParam(s.key, v)}
       onReset={() => resetParam(s.key)}
     />
   );
 
   // Segmentwahl für einen Parameter; die Optionen passen zum Typ des Parameters.
-  const segmented = (key: SegKey, label: string, hint: string, options: { value: string | number; label: string }[], disabled?: boolean) => (
+  const segmented = (key: SegKey, label: string, hint: string | undefined, options: { value: string | number; label: string }[], disabled?: boolean) => (
     <Segmented
       id={`regler-${key}`}
       label={label}
@@ -157,12 +167,27 @@ export function Adjust() {
 
   return (
     <div className="px-4 pb-4 pt-1 lg:px-4">
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-sm text-dim">
+          Look: <span className="text-fg">{lookName}</span>
+        </p>
+        {anyChanged && (
+          <Button variant="ghost" className="shrink-0 px-3 text-sm" onClick={resetAll}>
+            Alle zurücksetzen
+          </Button>
+        )}
+      </div>
+
+      <Heading>Licht</Heading>
+      {renderSlider(EXPOSURE)}
+
       <Heading>Weißabgleich</Heading>
       <Segmented
         id="regler-wbQuick"
         label="Weißabgleich"
         hint="White Balance"
         wrap
+        hideLabel
         noReset
         options={WB_QUICK}
         value={params.wbKelvin}
@@ -208,13 +233,13 @@ export function Adjust() {
         ],
         params.grainEffect === 0,
       )}
-      {!mono && segmented('colorChrome', 'Color Chrome', 'Color Chrome Effect', LEVELS)}
-      {!mono && segmented('colorChromeBlue', 'Color Chrome FX Blau', 'Color Chrome FX Blue', LEVELS)}
+      {!mono && segmented('colorChrome', 'Color Chrome', undefined, LEVELS)}
+      {!mono && segmented('colorChromeBlue', 'Color Chrome FX Blau', undefined, LEVELS)}
 
       <Heading>Extras</Heading>
       {EXTRAS.map((s) => (
         <div key={s.key}>
-          {renderSlider(s, { disabled: s.key === 'strength' && noLut })}
+          {renderSlider(s)}
           {s.key === 'leak' && (
             <div className="-mt-1 mb-1">
               <Button variant="ghost" className="min-h-11 px-3 text-sm" onClick={rollLeak} disabled={params.leak === 0} aria-label="Light Leaks neu würfeln">
@@ -226,14 +251,14 @@ export function Adjust() {
         </div>
       ))}
 
-      <div className="mt-2 flex flex-wrap gap-2 border-t border-line pt-3">
-        <Button variant="secondary" onClick={resetAll} className="text-sm">
+      <div className="mt-2 grid grid-cols-2 gap-2 border-t border-line pt-3">
+        <Button variant="secondary" onClick={resetAll} className="px-3! text-sm">
           <RotateCcw size={16} />
           Zurücksetzen
         </Button>
-        <Button variant="secondary" onClick={() => setSaving(true)} className="text-sm">
+        <Button variant="secondary" onClick={() => setSaving(true)} className="px-3! text-sm">
           <Bookmark size={16} />
-          Als Rezept speichern
+          Rezept speichern
         </Button>
       </div>
       {saving && <PresetDialog onClose={() => setSaving(false)} />}

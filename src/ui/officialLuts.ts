@@ -36,7 +36,8 @@ export async function importOfficialLuts(files: File[], onProgress: (fraction: n
   try {
     list = await readFiles(files);
   } catch (err) {
-    throw new Error(`Die Datei lässt sich nicht öffnen (${describeError(err)}).`);
+    const text = describeError(err);
+    throw new Error(/invalid zip data/i.test(text) ? 'Das ist keine ZIP-Datei, oder sie ist beschädigt.' : `Die Datei lässt sich nicht öffnen (${text}).`);
   }
   if (list.length === 0) throw new Error('Keine .cube-Dateien gefunden. Gesucht ist das ZIP-Paket der F-Log2-LUTs (z. B. „GFX ETERNA 55“) oder einzelne .cube-Dateien.');
   onProgress(0.05, `${list.length} LUT-Dateien werden umgerechnet …`);

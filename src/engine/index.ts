@@ -25,6 +25,7 @@ import {
   sharpKernelWeight,
   targetSpan,
   toColumnMajor,
+  type Rect,
   type Size,
 } from './plan';
 import { BLUR, EFFECT_MAP, MAIN, RESAMPLE } from './shaders';
@@ -459,6 +460,73 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     return createImageBitmap(new ImageData(buf, s.width, s.height));
   }
 
+  /** Eine Exportkachel: Ausschnitt `rect` der Quelle, gerechnet wie in exportPixels, als outW×outH. */
+  async function renderRegion(
+    src: SourceImage,
+    l: Lut3D | null,
+    params: LookParams,
+    rect: Rect,
+    outW: number,
+    outH: number,
+    opts: { showOriginal?: boolean; signal?: AbortSignal } = {},
+  ): Promise<ImageBitmap> {
+    const signal = opts.signal;
+    const check = () => {
+      if (signal?.aborted) throw abortError();
+      return alive();
+    };
+    const r = check();
+    const s = outW / (rect.x1 - rect.x0); // Zielpixel je Quellpixel
+    const sy = outH / (rect.y1 - rect.y0);
+    const margin = filterMargin(1 / s);
+    const u = {
+      x0: Math.max(0, rect.x0 - margin),
+      y0: Math.max(0, rect.y0 - margin),
+      x1: Math.min(src.width, rect.x1 + margin),
+      y1: Math.min(src.height, rect.y1 + margin),
+    };
+    const limit = Math.min(TILE_LIMIT, r.maxTexture);
+    if (u.x1 - u.x0 > limit || u.y1 - u.y0 > limit) throw new Error(`Ausschnitt zu groß (höchstens ${limit} px samt Rand).`);
+
+    // Effektkarte: für die aktive Quelle die gecachte (gleiche Größe wie im Export), sonst eigene.
+    if (src === source) await ready();
+    const cached = src === source && !!prepared;
+    let own: Target | null = null;
+    let fbo: Target | null = null;
+    const tex = createTexture(gl!);
+    const buf = new Uint8ClampedArray(outW * outH * 4);
+    try {
+      if (!cached && needsMap(params)) {
+        const [haloSrc] = await resample(src, [fitLongEdge(src.width, src.height, HALO_SRC_EDGE)], () => !signal?.aborted);
+        own = buildEffectMap(haloSrc, params);
+        deleteTarget(gl!, haloSrc);
+      }
+      await uploadRegion(gl!, tex, src.pixels, u);
+      check();
+      if (cached && (src !== source || !prepared)) throw abortError(); // Quelle inzwischen gewechselt
+      // Ab hier ohne await: die gecachte Karte kann sich sonst durch render() ändern.
+      const effects = cached ? effectsFor(params) : own;
+      fbo = createTarget(gl!, outW, outH);
+      gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbo.fbo);
+      gl!.viewport(0, 0, outW, outH);
+      gl!.useProgram(r.main.prog);
+      const full = { width: src.width * s, height: src.height * sy }; // gedachtes Gesamtbild in Zielpixeln
+      setSampling(r.main, tex, full, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [rect.x0 * s, rect.y0 * sy], isP3(src));
+      setLook(r.main, l, params, effects, s);
+      gl!.uniform1i(r.main.loc('uOriginal'), opts.showOriginal ? 1 : 0);
+      draw(r.main);
+      gl!.readPixels(0, 0, outW, outH, gl!.RGBA, gl!.UNSIGNED_BYTE, buf);
+    } finally {
+      if (!gl!.isContextLost()) {
+        gl!.deleteTexture(tex);
+        deleteTarget(gl!, fbo);
+        deleteTarget(gl!, own);
+        gl!.bindFramebuffer(gl!.FRAMEBUFFER, null);
+      }
+    }
+    return createImageBitmap(new ImageData(buf, outW, outH));
+  }
+
   async function exportPixels(
     src: SourceImage,
     l: Lut3D | null,
@@ -595,6 +663,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     exportJpeg,
     exportPixels,
     renderThumbnail,
+    renderRegion,
     ready,
     dispose,
   };

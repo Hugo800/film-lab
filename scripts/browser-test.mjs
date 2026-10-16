@@ -2,6 +2,7 @@
 // Baut nach test-output/e2e-build, liefert statisch aus (Port TEST_PORT, Vorgabe 5190) und bedient die
 // Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): 2 JPEGs + 1 ARW laden,
 // Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und als ZIP. Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
+// Der Server setzt die Header aus deploy/security-headers.conf; jeder CSP-Verstoß (Seite oder Worker) macht den Test rot.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -90,6 +91,12 @@ function expected(path) {
 
 console.log(`Baue App nach ${BUILD} …`);
 await build({ logLevel: 'warn', build: { outDir: BUILD, emptyOutDir: true } });
+// Dieselben Sicherheits-Header wie die Produktion: jede add_header-Zeile wird ein Header.
+const HEADERS = Object.fromEntries(
+  [...readFileSync('deploy/security-headers.conf', 'utf8').matchAll(/^\s*add_header\s+(\S+)\s+"([^"]*)"/gm)].map((m) => [m[1], m[2]]),
+);
+if (!HEADERS['Content-Security-Policy']) throw new Error('Keine CSP in deploy/security-headers.conf gefunden');
+console.log(`Header aus deploy/security-headers.conf: ${Object.keys(HEADERS).join(', ')}`);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
@@ -101,8 +108,8 @@ const server = createServer((req, res) => {
   if (path.endsWith('/')) path += 'index.html';
   // /__dl/… liefert die Downloads aus, damit die Seite sie zur Probe dekodieren kann.
   const file = path.startsWith('/__dl/') ? join(DL, path.slice(6)) : join(BUILD, path);
-  if (!existsSync(file) || !statSync(file).isFile()) return res.writeHead(404).end();
-  res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
+  if (!existsSync(file) || !statSync(file).isFile()) return res.writeHead(404, HEADERS).end();
+  res.writeHead(200, { ...HEADERS, 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
   createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(PORT, r));
@@ -124,13 +131,37 @@ async function run(mode, viewport) {
   page.on('request', (r) => requested.push(r.url()));
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
+  // CSP-Verstöße: im Dokument per Ereignis, in Workern (LibRaw, Export) über deren Protokoll.
+  const csp = [];
+  const isCsp = (t) => /Content Security Policy/i.test(t);
+  await page.exposeFunction('__cspVerstoss', (t) => csp.push(t));
+  await page.evaluateOnNewDocument(() =>
+    document.addEventListener('securitypolicyviolation', (e) => window.__cspVerstoss(`${e.violatedDirective}: ${e.blockedURI || e.sample}`)),
+  );
+  page.on('console', (m) => isCsp(m.text()) && csp.push(m.text()));
+  page.on('workercreated', (w) => {
+    w.client.on('Log.entryAdded', ({ entry }) => isCsp(entry.text) && csp.push(`Worker ${w.url().split('/').pop()}: ${entry.text}`));
+    w.client.on('Runtime.exceptionThrown', ({ exceptionDetails: d }) => {
+      const t = d.exception?.description ?? d.text;
+      if (isCsp(t)) csp.push(`Worker ${w.url().split('/').pop()}: ${t}`);
+    });
+    w.client.send('Log.enable').catch(() => {});
+  });
+  /** Meldet die App einen CSP-Fehler (etwa beim RAW-Entwickeln im Worker), zählt er auch. */
+  const appCsp = async () => {
+    const t = await page.evaluate(() => document.body.innerText).catch(() => '');
+    const m = t.split('\n').find((l) => isCsp(l) || /violates the following/i.test(l));
+    if (m) csp.push(`App: ${m}`);
+  };
 
+  // Jede Prüfung läuft im Hauptthread der Seite. Unter SwiftShader blockiert ihn das Rechnen der Look-Kacheln
+  // (readPixels) bis zu 10 s am Stück; dann zählt die erste Antwort nach Ablauf der Frist, nicht die Uhr allein.
   const waitFor = async (fn, ms, arg) => {
-    try {
-      await page.waitForFunction(fn, { timeout: ms, polling: 200 }, arg);
-      return true;
-    } catch {
-      return false;
+    const end = Date.now() + ms;
+    for (;;) {
+      if (await page.evaluate(fn, arg).catch(() => false)) return true;
+      if (Date.now() >= end) return false;
+      await sleep(200);
     }
   };
   /** Erster Knopf (oder Tab), für den `pred(b)` gilt; per Maus bzw. Finger bedient. */
@@ -168,7 +199,7 @@ async function run(mode, viewport) {
   const pasteRecipe = async (text, save) => {
     await press(`b.id === 'tab-looks'`);
     await press(`b.getAttribute('aria-label') === 'Rezept einfügen'`);
-    await page.waitForSelector('#rezept-text');
+    if (!(await waitFor(() => !!document.querySelector('#rezept-text'), 30_000))) throw new Error('Rezept-Dialog fehlt');
     await page.$eval('#rezept-text', (el, t) => {
       const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
       set.call(el, t);
@@ -178,8 +209,8 @@ async function run(mode, viewport) {
     const shown = await dialogText();
     if (save) {
       await page.type('#rezept-name', save);
-      await press(`b.textContent.trim() === 'Als Rezept speichern' && !!b.closest('[role=dialog]')`);
-    } else await press(`b.textContent.trim() === 'Auf dieses Foto anwenden'`);
+      await press(`b.textContent.trim() === 'Anwenden + speichern' && !!b.closest('[role=dialog]')`);
+    } else await press(`b.textContent.trim() === 'Anwenden' && !!b.closest('[role=dialog]')`);
     await sleep(300);
     return { recognized, shown };
   };
@@ -208,13 +239,13 @@ async function run(mode, viewport) {
   const exportRun = async (scope, name) => {
     const t = Date.now();
     await press(`b.textContent.includes('Exportieren') && !!b.closest('header')`);
-    await page.waitForSelector('[role=dialog] input[name=umfang]');
+    if (!(await waitFor(() => !!document.querySelector('[role=dialog] input[name=umfang]'), 30_000))) throw new Error('Export-Dialog fehlt');
     await press(`b.name === 'umfang' && b.closest('label').textContent.includes(a)`, scope === 'alle' ? 'Alle' : 'Dieses Foto');
     await press(`b.textContent.trim() === 'Exportieren' && !!b.closest('[role=dialog]')`);
     ok(await waitFor(() => !!document.querySelector('[role=progressbar]'), 10_000), `${scope}: Fortschrittsanzeige`);
-    const done = await waitFor(() => /^(Fertig|Export fehlgeschlagen|Abgebrochen)/.test(document.querySelector('[role=dialog] h2')?.textContent ?? ''), 600_000);
+    const done = await waitFor(() => /^Export (fertig|fehlgeschlagen|abgebrochen)/.test(document.querySelector('[role=dialog] h2')?.textContent ?? ''), 600_000);
     const text = await dialogText();
-    if (!ok(done && text.startsWith('Fertig') && !text.includes('konnte'), `${scope}: Export fertig (${secs(t)})`)) console.log(text);
+    if (!ok(done && text.startsWith('Export fertig') && !text.includes('konnte'), `${scope}: Export fertig (${secs(t)})`)) console.log(text);
     // Am PC startet der Download selbst, am Handy per Knopf (Teilen gibt es im Headless-Chrome nicht).
     if (touch) await press(`/herunterladen/i.test(b.textContent) && !!b.closest('[role=dialog]')`);
     const bytes = await waitDownload(name, 60_000);
@@ -264,18 +295,20 @@ async function run(mode, viewport) {
     await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
     ok(await page.evaluate(() => innerWidth === document.documentElement.scrollWidth), 'Startansicht ohne Seitenüberlauf');
     ok(!requested.some((u) => u.includes('libraw')), `RAW-Dekoder wird nicht vorab geladen (${requested.length} Anfragen beim Start)`);
+    ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis auf der Startseite');
 
     // Laden
     const tLoad = Date.now();
     await (await page.$('#datei-eingabe')).uploadFile(...PHOTOS);
     ok(await loaded(), `Foto 1 in der Vorschau (${secs(tLoad)})`);
-    const strip = await waitFor((n) => document.querySelectorAll('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "]').length === n, 10_000, PHOTOS.length);
+    const strip = await waitFor((n) => document.querySelectorAll('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "][aria-current]').length === n, 10_000, PHOTOS.length);
     ok(strip, `Filmstreifen mit ${PHOTOS.length} Fotos`);
     const looks = await lookTiles();
     ok(looks.length > 5, `${looks.length} Looks zur Wahl`);
     const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
     ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), `Gruppen: ${groups.join(' | ')}`);
-    ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis sichtbar');
+    // Im Bedienfeld steht der Markenhinweis nur in der Seitenleiste (PC), am Handy nicht.
+    if (!touch) ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
 
     // Foto 1: Look + Regler, Vorschau ändert sich
     const before = await previewShot();
@@ -311,7 +344,9 @@ async function run(mode, viewport) {
     const vi = await nudge('vignette', 5);
     ok(vi.after > vi.before, `Foto 2: Vignette ${vi.before} → ${vi.after}`);
     const tRaw = Date.now();
-    ok(await selectPhoto(3), `ARW geladen (${secs(tRaw)})`);
+    const rawOk = await selectPhoto(3);
+    await appCsp();
+    ok(rawOk, `ARW geladen (${secs(tRaw)})`);
     ok(await chooseLook(looks.at(-1)), `ARW: Look „${looks.at(-1)}“`);
     ok(await waitFor((n) => document.querySelectorAll('ul[aria-label="Geladene Fotos"] img').length === n, 30_000, PHOTOS.length), 'Filmstreifen hat alle Vorschaubilder (auch ARW)');
     await page.screenshot({ path: join(OUT, `${mode}-raw.png`) });
@@ -336,6 +371,8 @@ async function run(mode, viewport) {
     ok(false, `Ablauf abgebrochen: ${e.message}`);
     await page.screenshot({ path: join(OUT, `${mode}-fehler.png`) }).catch(() => {});
   } finally {
+    await appCsp();
+    ok(csp.length === 0, `keine CSP-Verstöße${csp.length ? `: ${[...new Set(csp)].slice(0, 5).join(' | ')}` : ''}`);
     ok(errors.length === 0, `keine Konsolenfehler${errors.length ? `: ${errors.slice(0, 5).join(' | ')}` : ''}`);
     await browser.close();
     console.log(`(${mode}: ${secs(tRun)})`);

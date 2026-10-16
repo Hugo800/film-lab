@@ -204,5 +204,18 @@ export interface Engine {
   exportJpeg(src: SourceImage, lut: Lut3D | null, params: LookParams, opts?: ExportOptions): Promise<Blob>;
   /** Kleine Vorschau (z. B. für Look-Kacheln), als ImageBitmap. */
   renderThumbnail(lut: Lut3D | null, params: LookParams, maxEdge: number): Promise<ImageBitmap>;
+  /**
+   * Ausschnitt `rect` (Quellpixel, halboffen) wie im Export gerechnet, auf outW×outH skaliert (z. B. 100 %-Lupe).
+   * Wirft, wenn der Ausschnitt samt Filterrand größer als eine Exportkachel ist; Abbruch per `signal` (AbortError).
+   */
+  renderRegion(
+    src: SourceImage,
+    lut: Lut3D | null,
+    params: LookParams,
+    rect: { x0: number; y0: number; x1: number; y1: number },
+    outW: number,
+    outH: number,
+    opts?: { showOriginal?: boolean; signal?: AbortSignal },
+  ): Promise<ImageBitmap>;
   dispose(): void;
 }

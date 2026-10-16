@@ -120,9 +120,14 @@ export function convertOfficial(files: OfficialFile[], onProgress?: (f: number) 
   // (F-Log2, F-Log2C, F-Log) und Schlüssel die kleinste Gittergröße nehmen.
   type Cand = { name: string; grid: number; data: () => Uint8Array };
   const fams = new Map<string, Map<string, Cand>>();
+  let neutral = 0;
   const add = (name: string, data: () => Uint8Array) => {
     const k = officialKeyOf(name);
-    if (!k || SKIP.has(k.key)) return;
+    if (!k) return;
+    if (SKIP.has(k.key)) {
+      neutral++;
+      return;
+    }
     const fam = fams.get(k.family) ?? new Map<string, Cand>();
     const prev = fam.get(k.key);
     if (!prev || (k.grid || 99) < (prev.grid || 99)) fam.set(k.key, { name, grid: k.grid, data });
@@ -140,7 +145,10 @@ export function convertOfficial(files: OfficialFile[], onProgress?: (f: number) 
   }
   const family = [...fams.keys()].filter((f) => fams.get(f)!.has('PROVIA')).sort((a, b) => (RANK[a] ?? 9) - (RANK[b] ?? 9))[0];
   if (!family) {
-    if (fams.size === 0) throw new Error('Keine Fujifilm-LUT gefunden. Erwartet werden Dateien wie „FLog2_to_CLASSIC-CHROME_33grid_V.1.00.cube“ oder das ZIP von Fujifilm.');
+    const keys = [...fams.values()].flatMap((m) => [...m.keys()]);
+    if (keys.every((k) => /^(ETERNA|WDR|NEUTRAL)/.test(k)) && keys.length + neutral > 0)
+      throw new Error('Dieses Paket enthält keine Filmsimulationen wie Provia oder Velvia. Nimm „GFX ETERNA 55“.');
+    if (fams.size === 0) throw new Error('Keine Fujifilm-LUT gefunden. Erwartet werden Dateien wie „FLog2_to_CLASSIC-CHROME_33grid_V.1.00.cube“.');
     throw new Error('PROVIA fehlt: Für die Umrechnung wird „FLog2_to_PROVIA….cube“ aus demselben Paket gebraucht.');
   }
   const decoder = new TextDecoder();

@@ -204,12 +204,14 @@
     const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
     return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
   }
-  // Mittlerer OKLab-Abstand (×100) zweier gleich großer RGBA-Bilder, optional nur Pixel mit Chroma ≥ minC in `a`.
-  function dOk(a, b, minC = 0) {
+  // Mittlerer OKLab-Abstand (×100) zweier gleich großer RGBA-Bilder, optional nur Pixel mit Chroma ≥ minC in `a`
+  // und (hue = [Mitte in Grad, Mindest-cos]) nur Farbtöne nahe der Mitte.
+  function dOk(a, b, minC = 0, hue = null) {
     let s = 0, n = 0, dl = 0;
     for (let i = 0; i < a.length; i += 4) {
       const p = oklab(a[i], a[i + 1], a[i + 2]), q = oklab(b[i], b[i + 1], b[i + 2]);
       if (Math.hypot(p[1], p[2]) < minC) continue;
+      if (hue && Math.cos(Math.atan2(p[2], p[1]) - (hue[0] * Math.PI) / 180) < hue[1]) continue;
       s += Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); dl += q[0] - p[0]; n++;
     }
     return { dE: (100 * s) / n, dL: (100 * dl) / n, n };
@@ -465,20 +467,59 @@
     },
 
     // Color Chrome: Referenz „aus“ mit unserer Engine bearbeiten und mit „stark“ vergleichen.
-    async colorChrome(off, on, params) {
+    async colorChrome(off, on, params, hue = null) {
       const a = await loadRgba('/testbilder/' + off), b = await loadRgba('/testbilder/' + on);
       const src = { id: off, fileName: off, width: a.width, height: a.height, colorSpace: 'srgb', pixels: a, meta: {}, isRaw: false };
       const ours = await engine.exportPixels(src, null, P(params), {});
       return {
         refOffVsOn: dOk(a.data, b.data), oursVsOn: dOk(ours.data, b.data),
-        satOffVsOn: dOk(a.data, b.data, 0.08), satOursVsOn: dOk(ours.data, b.data, 0.08), satOffVsOurs: dOk(a.data, ours.data, 0.08),
+        satOffVsOn: dOk(a.data, b.data, 0.08, hue), satOursVsOn: dOk(ours.data, b.data, 0.08, hue), satOffVsOurs: dOk(a.data, ours.data, 0.08, hue),
         // 8× verkleinert: Wind/Versatz zwischen den Aufnahmen fällt heraus.
         small: (() => {
           const w = Math.floor(a.width / 8), h = Math.floor(a.height / 8), d = (im) => boxDown(im, w, h);
           const [sa, sb, so] = [d(a), d(b), d(ours)];
-          return { offVsOn: dOk(sa, sb), oursVsOn: dOk(so, sb), satOffVsOn: dOk(sa, sb, 0.08), satOursVsOn: dOk(so, sb, 0.08) };
+          return { offVsOn: dOk(sa, sb), oursVsOn: dOk(so, sb), satOffVsOn: dOk(sa, sb, 0.08, hue), satOursVsOn: dOk(so, sb, 0.08, hue),
+            satOffVsOurs: dOk(sa, so, 0.08, hue) };
         })(),
         png: await stripPng([a, ours, b].map((im) => cropImg(im, 0, 0, im.width, im.height)), ['Referenz aus', 'Film Lab', 'Referenz stark']),
+      };
+    },
+
+    // renderRegion (100 %-Lupe) gegen denselben Ausschnitt aus exportPixels; Vorschau davor/danach unverändert.
+    async region(name, params, lutId, cw, ch) {
+      const src = await load(name);
+      const lut = look(lutId);
+      const x0 = Math.floor((src.width - cw) / 2), y0 = Math.floor((src.height - ch) / 2);
+      const rect = { x0, y0, x1: x0 + cw, y1: y0 + ch };
+      const bmpPixels = (b) => {
+        const g = new OffscreenCanvas(b.width, b.height).getContext('2d');
+        g.drawImage(b, 0, 0);
+        b.close();
+        return new Uint8Array(g.getImageData(0, 0, cw, ch).data.buffer);
+      };
+      engine.setSource(src);
+      engine.setLut(lut);
+      await engine.ready();
+      engine.render(P(params));
+      const before = readCanvas();
+      const t0 = performance.now();
+      const active = bmpPixels(await engine.renderRegion(src, lut, P(params), rect, cw, ch)); // gecachte Effektkarte
+      const ms = performance.now() - t0;
+      const other = bmpPixels(await engine.renderRegion({ ...src, id: 'kopie' }, lut, P(params), rect, cw, ch)); // eigene Karte
+      const orig = bmpPixels(await engine.renderRegion(src, lut, P(params), rect, cw, ch, { showOriginal: true }));
+      engine.render(P(params));
+      const after = readCanvas();
+      const full = await engine.exportPixels(src, lut, P(params), {});
+      const ref = crop(full, x0, y0, cw, ch);
+      const srcRef = crop({ data: await srgbReference(name), width: src.width }, x0, y0, cw, ch);
+      const errors = {};
+      for (const [k, r, o] of [['zuGross', { x0: 0, y0: 0, x1: 5000, y1: 100 }, {}], ['abgebrochen', rect, { signal: AbortSignal.abort() }]]) {
+        try { await engine.renderRegion(src, lut, P(params), r, r.x1 - r.x0, r.y1 - r.y0, o); errors[k] = 'kein Fehler'; } catch (e) { errors[k] = e.name + ': ' + e.message; }
+      }
+      return {
+        rect: [x0, y0, cw, ch], ms, active: diff(active, ref), other: diff(other, ref), original: diff(orig, srcRef),
+        preview: diff(before.data, after.data), errors,
+        png: await png(active, cw, ch),
       };
     },
 

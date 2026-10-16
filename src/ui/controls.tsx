@@ -30,7 +30,7 @@ export function Button({
 }: BtnProps & { variant?: 'primary' | 'secondary' | 'ghost' }) {
   const look =
     variant === 'primary'
-      ? 'bg-accent text-accent-fg font-semibold hover:brightness-110'
+      ? 'bg-accent text-accent-fg font-semibold enabled:hover:-translate-y-px enabled:hover:brightness-110'
       : variant === 'secondary'
         ? 'bg-raised text-fg hover:bg-line'
         : 'text-dim hover:text-fg hover:bg-raised';

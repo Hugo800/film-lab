@@ -27,7 +27,7 @@ export function openExport() {
   if (photos.length === 0) return;
   results = [];
   zipBlob = null;
-  useStore.setState({ export: { ...EXPORT_IDLE, phase: 'wahl', scope: 'aktuell' } });
+  useStore.setState({ export: { ...EXPORT_IDLE, phase: 'wahl', scope: photos.length > 1 ? 'alle' : 'aktuell' } });
   if (photos.length === 1) void startExport('aktuell');
 }
 
@@ -57,12 +57,14 @@ export async function startExport(scope: ExportScope) {
   abort = new AbortController();
   const { signal } = abort;
   const errors: string[] = [];
+  const pageTitle = document.title;
   setExport({ phase: 'laeuft', scope, fraction: 0, index: 0, total: list.length, errors: [], cancelled: false, done: [] });
 
   for (let i = 0; i < list.length; i++) {
     if (signal.aborted) break;
     const photo = list[i];
     setExport({ index: i, currentName: photo.name, fraction: i / list.length });
+    document.title = `Export ${i + 1}/${list.length} – Film Lab`;
     // Das aktive Foto liegt schon dekodiert vor; alle anderen werden nur für ihren Export geladen.
     let src = getSourceFor(photo.id);
     const own = !src;
@@ -84,6 +86,7 @@ export async function startExport(scope: ExportScope) {
   }
 
   abort = null;
+  document.title = pageTitle;
   if (results.length > 1) {
     try {
       zipBlob = await buildZip(results);
@@ -108,6 +111,10 @@ export function isTouchPrimary(): boolean {
   } catch {
     return false;
   }
+}
+
+export function isIos(): boolean {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 function toFiles(): File[] {

@@ -1,7 +1,7 @@
 // Fuji-Rezepttext (Format wie bei Fuji X Weekly, englisch) → Look + LookParams. Reine Funktionen, ohne DOM.
 // Was nicht erkannt oder nicht umsetzbar ist, landet in `skipped` und wird dem Nutzer gezeigt, nie geraten.
 import type { Level, LookParams } from '../types';
-import { fmtSigned } from './format';
+import { fmtSigned, fmtThirds } from './format';
 
 /** Das Nötigste eines Looks, um den Filmnamen eines Rezepts zuzuordnen. */
 export interface RecipeLookRef {
@@ -17,12 +17,16 @@ export interface ParsedRecipe {
   film?: string;
   /** Farbfilter bei Acros/Monochrom (Ye, R, G), wird nicht umgesetzt. */
   filmFilter?: string;
+  /** Der Text ist (oder enthält) einen Link statt der Rezeptliste. */
+  link?: boolean;
   params: Partial<LookParams>;
   /** Was gesetzt wird, für die Anzeige. */
   applied: { label: string; value: string }[];
   /** Nicht übernommen: Zeile samt Grund. */
   skipped: { line: string; reason: string }[];
 }
+
+export const LINK_MESSAGE = 'Das ist ein Link. Kopiere von der Seite die Liste mit Film Simulation, Dynamic Range usw.';
 
 export const RECIPE_EXAMPLE = `Film Simulation: Classic Chrome
 Dynamic Range: DR400
@@ -199,7 +203,9 @@ const toneCurve: Handler = (value, c) => {
   const v = value.replace(MINUS, '-');
   const h = /([+-]?\d+(?:[.,]\d+)?)\s*h\b/i.exec(v)?.[1];
   const s = /([+-]?\d+(?:[.,]\d+)?)\s*s\b/i.exec(v)?.[1];
-  if (h === undefined && s === undefined) return c.skip('Format „+1H & -1S“ erwartet');
+  // Bleibt nach „+1H“ und „-1S“ etwas übrig, ist das Format fremd: lieber ganz auslassen als halb lesen.
+  const rest = v.replace(/([+-]?\d+(?:[.,]\d+)?)\s*[hs]\b/gi, '').replace(/[\s&,;]+|\b(?:and|und)\b/gi, '');
+  if ((h === undefined && s === undefined) || rest) return c.skip('Format „+1H & -1S“ erwartet');
   if (h !== undefined) {
     const x = clamp(snap(Number(h.replace(',', '.')), 0.5), -2, 4);
     c.set('Lichter', 'highlightTone', x, fmtSigned(x, Number.isInteger(x) ? 0 : 1));
@@ -217,7 +223,7 @@ const SHOOTING = 'Aufnahmeeinstellung, ohne Wirkung auf die Bearbeitung';
 const HANDLERS: Record<string, Handler> = {
   dynamicrange: (value, c) => {
     const m = /(?<!\d)(100|200|400)(?!\d)/.exec(value);
-    if (!m) return c.skip('DR100, DR200 oder DR400 erwartet (Auto gibt es hier nicht)');
+    if (!m) return c.skip(/auto/i.test(value) ? 'Auto gibt es hier nicht – DR100 bleibt' : 'DR100, DR200 oder DR400 erwartet');
     const dr = Number(m[1]) as 100 | 200 | 400;
     c.set('Dynamikbereich', 'dynamicRange', dr, `DR${dr}`);
   },
@@ -269,7 +275,7 @@ const HANDLERS: Record<string, Handler> = {
     const m = mean(value);
     if (m === undefined) return c.skip('Wert nicht lesbar');
     const v = clamp(Math.round(m * 100) / 100, -2, 2);
-    c.set('Belichtung', 'exposure', v, `${fmtSigned(v, 2)} EV`);
+    c.set('Belichtung', 'exposure', v, fmtThirds(v)); // wie der Regler in Drittelstufen
   },
 };
 
@@ -298,8 +304,11 @@ const KEY_ALIASES: Record<string, string> = {
 };
 
 const FILM_KEYS = new Set(['filmsimulation', 'filmsim', 'simulation', 'film']);
-const NO_EQUIVALENT_KEYS = new Set(['noisereduction', 'highisonr', 'highisonoisereduction', 'hisnr', 'nr', 'smoothskineffect', 'lensmodulationoptimizer', 'longexposurenr']);
-const SHOOTING_KEYS = new Set(['iso', 'isorange', 'shutterspeed', 'aperture', 'focus', 'drivemode', 'filmsimulationbracketing', 'sensor', 'camera', 'lens']);
+const NO_EQUIVALENT_KEYS = new Set(['noisereduction', 'highisonr', 'highisonoisereduction', 'hisnr', 'nr', 'lensmodulationoptimizer']);
+const SHOOTING_KEYS = new Set([
+  'iso', 'isorange', 'shutterspeed', 'aperture', 'focus', 'drivemode', 'filmsimulationbracketing', 'sensor', 'camera', 'lens',
+  'drangepriority', 'dynamicrangepriority', 'smoothskineffect', 'longexposurenr', 'colorspace', 'shadowhighlightpriority', 'highlightshadowpriority',
+]);
 
 /** Zerlegt in Zeilen; „A: x / B: y“ in einer Zeile wird getrennt, „+1/3“ bleibt heil. */
 function lines(text: string): string[] {
@@ -324,16 +333,25 @@ function parseFilm(value: string): { film: string; filter?: string } {
   return { film: value.trim() };
 }
 
+/** „Kodak Portra 400 Film Simulation Recipe“ → „Kodak Portra 400“. */
+function cleanTitle(line: string): string | undefined {
+  return line.replace(/\bfilm\s+simulation\s+recipe\b|\brecipe\b/gi, '').replace(/\s{2,}/g, ' ').replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '') || undefined;
+}
+
 export function parseRecipe(text: string): ParsedRecipe {
   const r: ParsedRecipe = { params: {}, applied: [], skipped: [] };
   let first = true;
   for (const line of lines(text)) {
     const isFirst = first;
     first = false;
+    if (/^https?:\/\//i.test(line)) {
+      r.link = true;
+      continue;
+    }
     const colon = line.indexOf(':');
     const value = colon < 0 ? '' : line.slice(colon + 1).trim();
     if (colon < 0) {
-      if (isFirst && line.length <= 60) r.title = line;
+      if (isFirst && line.length <= 60) r.title = cleanTitle(line);
       else r.skipped.push({ line, reason: 'keine Einstellung erkannt' });
       continue;
     }

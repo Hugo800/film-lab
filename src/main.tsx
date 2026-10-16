@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './ui/App';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { initPersist } from './ui/persist';
+
+initPersist();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

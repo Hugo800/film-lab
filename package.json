@@ -16,6 +16,7 @@
     "test:engine": "node scripts/engine-test.mjs",
     "test:io": "node scripts/io-test.mjs",
     "test:raw": "node scripts/raw-test.mjs",
+    "test:pwa": "node scripts/pwa-test.mjs",
     "looks:sheet": "node scripts/looks-sheet.mjs",
     "ui:flow": "node scripts/ui-flow.mjs",
     "ui:shots": "node scripts/ui-shots.mjs"
@@ -45,6 +46,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.0",
     "vite": "^6.4.3",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^3.2.4"
   }
 }

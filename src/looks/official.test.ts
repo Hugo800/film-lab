@@ -130,12 +130,12 @@ describe.skipIf(!haveLocal)('offizielle Fujifilm-LUTs (lokal)', () => {
     }
     console.log(`ΔE2000 (Mittel über 33³) gegen abgeleitet-lokal: ${rows.join(', ')}`);
     expect(worst).toBeLessThan(0.25);
-  });
+  }, 60_000); // rechenintensiv (ΔE2000 über 10 × 33³), kein Zeittest
 
   it.skipIf(!existsSync(ZIP))('liest das Original-ZIP und kommt zum selben Ergebnis', () => {
     const t1 = performance.now();
     const fromZip = convertOfficial([{ name: 'gfx-eterna-55-3d-lut-v110.zip', data: new Uint8Array(readFileSync(ZIP)) }]);
     console.log(`ZIP (45 MB) in ${(performance.now() - t1).toFixed(0)} ms`);
     expect(meanDE(fromZip.get('CLASSIC-CHROME')!, map.get('CLASSIC-CHROME')!)).toBeLessThan(0.01);
-  });
+  }, 60_000); // 45-MB-ZIP entpacken und umrechnen; die Laufzeit steht im Log
 });

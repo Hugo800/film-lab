@@ -211,7 +211,7 @@ einfach nur Text`);
       Weißabgleich: '5500 K',
       'WB-Verschiebung Rot': '+2',
       'WB-Verschiebung Blau': '−4',
-      Belichtung: '+0,33 EV',
+      Belichtung: '+1/3 EV',
     });
   });
 
@@ -225,5 +225,49 @@ einfach nur Text`);
     const r = parseRecipe('Film Simulation: Provia; Color: +1 | Sharpness: 0');
     expect(r.film).toBe('Provia');
     expect(r.params).toEqual({ color: 1, sharpness: 0 });
+  });
+});
+
+describe('parseRecipe: Titel, Link und Aufnahmeeinstellungen', () => {
+  it('17: „Film Simulation Recipe“ und „Recipe“ fallen aus dem Titel', () => {
+    expect(parseRecipe('Kodak Portra 400 Film Simulation Recipe\nFilm Simulation: Classic Negative').title).toBe('Kodak Portra 400');
+    expect(parseRecipe('Moody Classic Chrome Recipe\nColor: +1').title).toBe('Moody Classic Chrome');
+    expect(parseRecipe('Film Simulation Recipe\nColor: +1').title).toBeUndefined();
+    expect(parseRecipe('Sommerabend\nColor: +1').title).toBe('Sommerabend');
+  });
+
+  it('18: ein Link wird als Link gemeldet, nicht als unbekannte Zeile', () => {
+    const r = parseRecipe('https://fujixweekly.com/2023/01/01/mein-rezept/');
+    expect(r.link).toBe(true);
+    expect(r.skipped).toEqual([]);
+    expect(r.applied).toEqual([]);
+    expect(parseRecipe('  HTTP://example.com\nColor: +1').params).toEqual({ color: 1 });
+    expect(parseRecipe('Color: +1').link).toBeUndefined();
+  });
+
+  it('19: D Range Priority, Smooth Skin, Long Exposure NR, Color Space und Shadow/Highlight Priority sind Aufnahmeeinstellungen', () => {
+    const r = parseRecipe(`D Range Priority: Off
+Smooth Skin Effect: Strong
+Long Exposure NR: On
+Color Space: sRGB
+Shadow/Highlight Priority: Off
+Highlight: +1`);
+    expect(r.params).toEqual({ highlightTone: 1 });
+    expect(r.skipped).toHaveLength(5);
+    expect(r.skipped.every((s) => s.reason.startsWith('Aufnahmeeinstellung'))).toBe(true);
+  });
+
+  it('20: DR-Auto meldet „DR100 bleibt“', () => {
+    const r = parseRecipe('Dynamic Range: DR-Auto');
+    expect(r.params).toEqual({});
+    expect(r.skipped).toEqual([{ line: 'Dynamic Range: DR-Auto', reason: 'Auto gibt es hier nicht – DR100 bleibt' }]);
+  });
+
+  it('21: Tone Curve in fremdem Format wird ganz ausgelassen', () => {
+    const r = parseRecipe('Tone Curve: +1H und Mitten anheben');
+    expect(r.params).toEqual({});
+    expect(r.skipped).toHaveLength(1);
+    expect(parseRecipe('Tone Curve: +1.5H, -1S').params).toEqual({ highlightTone: 1.5, shadowTone: -1 });
+    expect(parseRecipe('Tone Curve: -1S').params).toEqual({ shadowTone: -1 });
   });
 });

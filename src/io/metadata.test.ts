@@ -13,6 +13,8 @@ const XMP_ID = 'http://ns.adobe.com/xap/1.0/\0';
 const xmpBytes = (xml: string) => Uint8Array.from([...ascii(XMP_ID), ...new TextEncoder().encode(xml)]);
 const xmpText = (b: Uint8Array) => new TextDecoder().decode(b.subarray(XMP_ID.length));
 const NEW = { width: 4000, height: 6000 };
+// toEqual vergleicht große Typed Arrays Element für Element über Sekunden; so geht es in Millisekunden.
+const same = (x: Uint8Array, y: Uint8Array) => x.length === y.length && x.every((v, i) => v === y[i]);
 
 describe('patchExif', () => {
   for (const le of [true, false]) {
@@ -99,7 +101,7 @@ describe('ICC', () => {
     expect(parts.length).toBe(3);
     expect(parts.every((p) => p.length <= 65533)).toBe(true);
     expect([parts[0][12], parts[0][13], parts[2][12], parts[2][13]]).toEqual([1, 3, 3, 3]);
-    expect(joinIcc(parts)).toEqual(profile);
+    expect(same(joinIcc(parts)!, profile)).toBe(true);
   });
   it('verwirft abgeschnittene Profile', () => {
     const parts = splitIcc(fakeIcc('x', 'desc', 150_000));
@@ -124,7 +126,8 @@ describe('JPEG-Segmente', () => {
   it('Teile mehrteiliger Profile bleiben in Reihenfolge', () => {
     const parts = splitIcc(fakeIcc('Display P3', 'desc', 100_000));
     const jpeg = fakeJpeg(parts.map((p) => segment(0xe2, p)));
-    expect(extractMetadata(jpeg).icc).toEqual(parts);
+    const icc = extractMetadata(jpeg).icc!;
+    expect(icc.length === parts.length && icc.every((p, i) => same(p, parts[i]))).toBe(true);
   });
 
   it('kaputte Strukturen liefern keine Metadaten statt Fehler', () => {

@@ -1,10 +1,13 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { ClipboardPaste, FileUp, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ClipboardPaste, FileUp, PackageOpen, X } from 'lucide-react';
 import { parseCube } from '../looks';
+import type { LookCategory } from '../types';
+import { fmtPercent } from './format';
 import {
   builtinEntries,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  defaultsFor,
   NONE_ENTRY,
   NONE_ID,
   TRADEMARK_NOTE,
@@ -14,35 +17,51 @@ import {
 import { OfficialDialog } from './OfficialDialog';
 import { RecipeDialog } from './RecipeDialog';
 import { describeError } from './session';
+import { Slider } from './Slider';
 import { activePhoto, useStore } from './store';
+
+/** Kurzer Kachelname; der volle steht im title und über dem Stärke-Regler. */
+function tileName(e: Pick<LookEntry, 'name' | 'category'>): string {
+  // „Monochrom + Ye“ usw. passen sonst nicht und wären abgeschnitten nicht zu unterscheiden.
+  if (e.category === 'fujifilm') return e.name.replace(/\/.*$/, '').replace(/^Monochrom /, 'Mono ');
+  if (e.category === 'leica')
+    return e.name
+      .replace(/^Leica /, '')
+      .replace('Monochrom High Contrast', 'Mono HC')
+      .replace(/^Monochrom /, 'Mono ');
+  if (e.category === 'kodak') return e.name.replace(/^Kodak /, '');
+  return e.name;
+}
 
 interface TileProps {
   name: string;
+  /** Voller Name für title und Tests. */
+  fullName?: string;
   /** undefined = wird noch gerendert, '' = fehlgeschlagen. */
   thumb: string | undefined;
   selected?: boolean;
   onClick: () => void;
   onRemove?: () => void;
   removeLabel?: string;
-  /** SW-Look. */
-  mono?: boolean;
-  /** Kleines Abzeichen unten rechts, z. B. „Original“. */
+  /** Kleines Abzeichen unten rechts, z. B. „Fuji-LUT“. */
   badge?: string;
 }
 
-function Tile({ name, thumb, selected, onClick, onRemove, removeLabel, mono, badge }: TileProps) {
+function Tile({ name, fullName = name, thumb, selected, onClick, onRemove, removeLabel, badge }: TileProps) {
   return (
-    <div className="relative w-[84px] flex-none lg:w-auto">
+    <div className="relative w-20 flex-none side:w-auto">
       <button
         type="button"
         onClick={onClick}
         aria-pressed={!!selected}
-        data-look={name}
-        className="block w-full rounded-xl text-left outline-offset-2"
+        aria-label={fullName}
+        title={fullName}
+        data-look={fullName}
+        className="group block w-full rounded-xl text-left outline-offset-2 focus-visible:outline-fg"
       >
         <span
           className={`relative block aspect-square w-full overflow-hidden rounded-xl bg-raised ring-2 transition ${
-            selected ? 'ring-accent' : 'ring-transparent'
+            selected ? 'ring-accent' : 'ring-transparent group-hover:ring-line'
           }`}
         >
           {thumb ? (
@@ -54,15 +73,19 @@ function Tile({ name, thumb, selected, onClick, onRemove, removeLabel, mono, bad
               {name.slice(0, 1)}
             </span>
           )}
-          {mono && <Pill className="left-1 top-1">SW</Pill>}
-          {badge && <Pill className="bottom-1 right-1">{badge}</Pill>}
+          {badge && (
+            <span aria-hidden className="pointer-events-none absolute bottom-1 right-1 rounded-full bg-black/65 px-1.5 py-px text-[10px] font-medium leading-4 text-white">
+              {badge}
+            </span>
+          )}
         </span>
-        <span className={`mt-1 line-clamp-2 block text-xs leading-tight ${selected ? 'text-fg' : 'text-dim'}`}>{name.replace('/', '/\u200b')}</span>
+        <span className={`mt-1 block truncate text-xs leading-tight ${selected ? 'text-fg' : 'text-dim group-hover:text-fg'}`}>{name}</span>
       </button>
       {onRemove && (
         <button
           type="button"
           aria-label={removeLabel}
+          title={removeLabel}
           onClick={onRemove}
           className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/60 text-white before:absolute before:-inset-2.5 before:content-['']"
         >
@@ -73,32 +96,53 @@ function Tile({ name, thumb, selected, onClick, onRemove, removeLabel, mono, bad
   );
 }
 
-function Pill({ children, className }: { children: ReactNode; className: string }) {
+function Group({ cat, hint, children }: { cat: LookCategory; hint?: string; children: ReactNode }) {
   return (
-    <span aria-hidden className={`pointer-events-none absolute rounded-full bg-black/65 px-1.5 py-px text-[10px] font-medium leading-4 text-white ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-function Group({ label, hint, action, children }: { label: string; hint?: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="flex-none lg:mb-5" aria-label={label}>
-      <h3 className="mb-1.5 flex items-center gap-3 px-0.5 text-[11px] font-medium uppercase tracking-wider text-dim">
-        <span>
-          {label}
-          {hint && <span className="ml-1.5 normal-case tracking-normal">{hint}</span>}
-        </span>
-        {action}
+    <section className="flex-none side:mb-5" aria-label={CATEGORY_LABELS[cat]} data-cat={cat}>
+      <h3 className="mb-1.5 hidden items-baseline px-0.5 text-[11px] font-medium uppercase tracking-wider text-dim side:flex">
+        {CATEGORY_LABELS[cat]}
+        {hint && <span className="ml-1.5 font-normal normal-case tracking-normal text-dim/70">· {hint}</span>}
       </h3>
-      <div className="flex gap-2 lg:grid lg:grid-cols-3">{children}</div>
+      <div className="flex gap-2 side:grid side:grid-cols-[repeat(auto-fill,minmax(80px,1fr))] side:gap-x-2 side:gap-y-3">{children}</div>
     </section>
   );
 }
 
+function ActionTile({ label, icon, onClick }: { label: string; icon: ReactNode; onClick: () => void }) {
+  return (
+    <div className="w-20 flex-none side:w-auto">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        title={label}
+        className="group block w-full rounded-xl text-left outline-offset-2 focus-visible:outline-fg"
+      >
+        <span className="flex aspect-square w-full items-center justify-center rounded-xl border border-dashed border-line text-dim group-hover:border-dim group-hover:text-fg">
+          {icon}
+        </span>
+        <span className="mt-1 block truncate text-xs leading-tight text-dim group-hover:text-fg">{label}</span>
+      </button>
+    </div>
+  );
+}
+
+/** Mitte des Elements in den sichtbaren Bereich der Liste holen, falls es nicht ganz zu sehen ist. */
+function reveal(list: HTMLElement, el: Element) {
+  const l = list.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (r.left >= l.left && r.right <= l.right && r.top >= l.top && r.bottom <= l.bottom) return;
+  list.scrollBy({ left: r.left + r.width / 2 - (l.left + l.width / 2), top: r.top + r.height / 2 - (l.top + l.height / 2) });
+}
+
 export function LookPicker() {
   const fileInput = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** Per Chip gewählte Gruppe: bleibt aktiv, bis der Nutzer selbst in der Liste scrollt. */
+  const pinned = useRef<LookCategory | null>(null);
   const [dialog, setDialog] = useState<'rezept' | 'originale' | null>(null);
+  const [activeCat, setActiveCat] = useState<LookCategory>('fujifilm');
+  const [infoOpen, setInfoOpen] = useState(false);
   const photo = useStore(activePhoto);
   const thumbs = useStore((s) => s.lookThumbs);
   const customLuts = useStore((s) => s.customLuts);
@@ -106,6 +150,8 @@ export function LookPicker() {
   const officialKeys = useStore((s) => s.officialKeys);
   const useOfficial = useStore((s) => s.useOfficial);
   const setLook = useStore((s) => s.setLook);
+  const setParam = useStore((s) => s.setParam);
+  const resetParam = useStore((s) => s.resetParam);
   const applyPreset = useStore((s) => s.applyPreset);
   const notify = useStore((s) => s.notify);
 
@@ -116,21 +162,89 @@ export function LookPicker() {
     return map;
   }, [entries]);
 
-  if (!photo) return null;
-  const photoId = photo.id;
-  const current = photo.settings.lookId;
-  const thumbOf = (id: string) => thumbs[`${photoId}|${id}`];
+  const photoId = photo?.id;
+  const current = photo?.settings.lookId;
+
+  // Gewählte Kachel zeigen: nach Look- oder Fotowechsel und beim Einblenden des Tabs.
+  useEffect(() => {
+    const list = listRef.current;
+    const tile = list?.querySelector('button[aria-pressed="true"]');
+    pinned.current = null;
+    if (list && tile) reveal(list, tile);
+  }, [current, photoId]);
+
+  // Der aktive Chip folgt der Scrollposition: die letzte Gruppe, deren Anfang den Listenanfang erreicht hat.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      if (pinned.current) return;
+      const horizontal = getComputedStyle(list).display === 'flex';
+      const l = list.getBoundingClientRect();
+      const sections = Array.from(list.querySelectorAll<HTMLElement>('section[data-cat]'));
+      const atEnd = horizontal
+        ? list.scrollLeft + list.clientWidth >= list.scrollWidth - 2
+        : list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+      let cat = sections[0]?.dataset.cat;
+      for (const s of sections) {
+        const r = s.getBoundingClientRect();
+        if ((horizontal ? r.left - l.left : r.top - l.top) <= 40) cat = s.dataset.cat;
+      }
+      if (atEnd && sections.length > 0) cat = sections[sections.length - 1].dataset.cat;
+      if (cat) setActiveCat(cat as LookCategory);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const release = () => {
+      pinned.current = null;
+    };
+    list.addEventListener('scroll', onScroll, { passive: true });
+    for (const type of ['pointerdown', 'wheel', 'touchstart'] as const) list.addEventListener(type, release, { passive: true });
+    update();
+    return () => {
+      list.removeEventListener('scroll', onScroll);
+      for (const type of ['pointerdown', 'wheel', 'touchstart'] as const) list.removeEventListener(type, release);
+      cancelAnimationFrame(frame);
+    };
+  }, [photoId]);
+
+  if (!photo || current === undefined) return null;
+  const thumbOf = (id: string) => thumbs[`${photo.id}|${id}`];
   const selectedEntry = entries.find((e) => e.id === current);
   const selectedCustom = customLuts.find((l) => l.id === current);
-  const info =
-    current === NONE_ID
-      ? NONE_ENTRY.description
-      : selectedEntry
-        ? `${selectedEntry.name} – ${selectedEntry.description}`
-        : selectedCustom
-          ? `${selectedCustom.name} – eigene LUT`
-          : '';
-  const original = (e: LookEntry) => (useOfficial && e.officialKey && officialKeys.includes(e.officialKey) ? 'Original' : undefined);
+  const lookName = selectedEntry?.name ?? selectedCustom?.name ?? '';
+  const info = current === NONE_ID ? NONE_ENTRY.description : (selectedEntry?.description ?? (selectedCustom ? 'Eigene LUT aus einer .cube-Datei.' : ''));
+  const badge = (e: LookEntry) => (useOfficial && e.officialKey && officialKeys.includes(e.officialKey) ? 'Fuji-LUT' : undefined);
+
+  const jumpTo = (cat: LookCategory) => {
+    const list = listRef.current;
+    const section = list?.querySelector(`section[data-cat="${cat}"]`);
+    if (!list || !section) return;
+    const l = list.getBoundingClientRect();
+    const r = section.getBoundingClientRect();
+    const pad = getComputedStyle(list);
+    const horizontal = pad.display === 'flex';
+    pinned.current = cat;
+    setActiveCat(cat);
+    // Eigene Gleitbewegung mit fester Dauer: 'smooth' braucht über 40 Kacheln hinweg länger als eine Sekunde.
+    const x0 = list.scrollLeft;
+    const y0 = list.scrollTop;
+    const dx = horizontal ? r.left - l.left - parseFloat(pad.paddingLeft) : 0;
+    const dy = horizontal ? 0 : r.top - l.top - parseFloat(pad.paddingTop);
+    const t0 = performance.now();
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 350;
+    const step = (t: number) => {
+      if (pinned.current !== cat) return; // Der Nutzer hat übernommen.
+      const k = duration ? Math.min(1, (t - t0) / duration) : 1;
+      const e = 1 - (1 - k) ** 3;
+      list.scrollTo(x0 + dx * e, y0 + dy * e);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
 
   async function loadCube(file: File | undefined) {
     if (!file) return;
@@ -145,62 +259,62 @@ export function LookPicker() {
   }
 
   const lookTile = (e: LookEntry) => (
-    <Tile key={e.id} name={e.name} thumb={thumbOf(e.id)} selected={current === e.id} mono={e.monochrome} badge={original(e)} onClick={() => setLook(e.id)} />
+    <Tile key={e.id} name={tileName(e)} fullName={e.name} thumb={thumbOf(e.id)} selected={current === e.id} badge={badge(e)} onClick={() => setLook(e.id)} />
   );
-  const actionTile = (label: string, icon: ReactNode, onClick: () => void) => (
-    <div className="w-[84px] flex-none lg:w-auto">
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={label}
-        className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line text-dim hover:border-dim hover:text-fg"
-      >
-        {icon}
-      </button>
-      <span className="mt-1 block text-xs leading-tight text-dim" aria-hidden>
-        {label}
-      </span>
-    </div>
-  );
-
   const eigeneBuiltin = byCategory.get('eigene') ?? [];
 
   return (
-    <div className="flex min-h-0 flex-col lg:h-full">
-      <div className="hide-scrollbar flex gap-4 overflow-x-auto px-3 py-2 lg:block lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:px-4 lg:py-4">
-        <Group label={CATEGORY_LABELS.ohne}>
-          <Tile name={NONE_ENTRY.name} thumb={thumbOf(NONE_ID)} selected={current === NONE_ID} onClick={() => setLook(NONE_ID)} />
-        </Group>
-        {entries.length === 0 && (
-          <p className="flex-none self-center text-sm text-dim lg:mb-5">Noch keine Looks verfügbar.</p>
-        )}
+    <div className="@container flex min-h-0 flex-col side:h-full">
+      <div className="flex flex-none items-center gap-0.5 px-1.5 side:border-b side:border-line side:px-2.5">
+        {/* Chips 32 px hoch, per before: 44 px Trefferfläche, ohne die Zeile höher zu machen. */}
+        {CATEGORY_ORDER.map((cat) => {
+          const on = cat === activeCat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              aria-current={on || undefined}
+              onClick={() => jumpTo(cat)}
+              className={`relative min-h-8 px-2 text-[13px] transition before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] ${
+                on ? "font-medium text-fg after:absolute after:inset-x-2 after:bottom-0.5 after:h-0.5 after:rounded-full after:bg-accent" : 'text-dim hover:text-fg'
+              }`}
+            >
+              {CATEGORY_LABELS[cat]}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setDialog('rezept')}
+          aria-label="Rezept einfügen"
+          title="Rezept einfügen (Text von Fuji X Weekly)"
+          className="relative ml-auto inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-dim before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-raised hover:text-fg"
+        >
+          <ClipboardPaste size={16} />
+          <span className="hidden @min-[350px]:inline">Rezept</span>
+        </button>
+      </div>
+      <div
+        ref={listRef}
+        className="hide-scrollbar flex gap-4 overflow-x-auto px-3 py-1 side:block side:min-h-0 side:flex-1 side:overflow-x-hidden side:overflow-y-auto side:px-4 side:py-3"
+      >
+        {entries.length === 0 && <p className="flex-none self-center text-sm text-dim side:mb-5">Noch keine Looks verfügbar.</p>}
         {CATEGORY_ORDER.filter((c) => c !== 'eigene').map((cat) => {
           const list = byCategory.get(cat);
           if (!list) return null;
           return (
-            <Group
-              key={cat}
-              label={CATEGORY_LABELS[cat]}
-              hint={cat === 'kodak' ? 'Rezepte' : undefined}
-              action={
-                cat === 'fujifilm' ? (
-                  <button
-                    type="button"
-                    onClick={() => setDialog('originale')}
-                    className="relative text-[11px] font-normal normal-case tracking-normal text-dim underline underline-offset-2 before:absolute before:-inset-y-3 before:-inset-x-2 before:content-[''] hover:text-fg"
-                  >
-                    {officialKeys.length > 0 ? 'Originale' : 'Originale laden …'}
-                  </button>
-                ) : undefined
-              }
-            >
+            <Group key={cat} cat={cat} hint={cat === 'kodak' ? 'als Fuji-Rezepte' : undefined}>
+              {cat === 'fujifilm' && (
+                <Tile name={NONE_ENTRY.name} thumb={thumbOf(NONE_ID)} selected={current === NONE_ID} onClick={() => setLook(NONE_ID)} />
+              )}
               {list.map(lookTile)}
+              {cat === 'fujifilm' && <ActionTile label="Fuji-LUTs" icon={<PackageOpen size={22} />} onClick={() => setDialog('originale')} />}
             </Group>
           );
         })}
-        <Group label={CATEGORY_LABELS.eigene}>
-          {actionTile('Rezept einfügen', <ClipboardPaste size={22} />, () => setDialog('rezept'))}
-          {actionTile('LUT laden (.cube)', <FileUp size={22} />, () => fileInput.current?.click())}
+        <Group cat="eigene">
+          <ActionTile label="Rezept einfügen" icon={<ClipboardPaste size={22} />} onClick={() => setDialog('rezept')} />
+          <ActionTile label="LUT laden (.cube)" icon={<FileUp size={22} />} onClick={() => fileInput.current?.click()} />
           {eigeneBuiltin.map(lookTile)}
           {customLuts.map((l) => (
             <Tile
@@ -224,10 +338,37 @@ export function LookPicker() {
             />
           ))}
         </Group>
+        <p className="hidden pb-1 text-xs leading-snug text-dim side:block">{TRADEMARK_NOTE}</p>
       </div>
-      <div className="flex flex-col gap-1.5 px-4 pb-2 lg:border-t lg:border-line lg:py-3">
-        {info && <p className="line-clamp-2 text-xs leading-snug text-dim lg:line-clamp-none lg:text-sm">{info}</p>}
-        <p className="text-[11px] leading-snug text-dim/70">{TRADEMARK_NOTE}</p>
+      <div className="flex flex-none flex-col px-4 pb-1.5 side:gap-1 side:border-t side:border-line side:py-3">
+        {current !== NONE_ID && (
+          <Slider
+            id="regler-strength"
+            label={lookName}
+            hint="Stärke"
+            value={photo.settings.params.strength}
+            defaultValue={defaultsFor(current).strength}
+            min={0}
+            max={1}
+            step={0.01}
+            format={fmtPercent}
+            onChange={(v) => setParam('strength', v)}
+            onReset={() => resetParam('strength')}
+          />
+        )}
+        {info && (
+          <>
+            <button
+              type="button"
+              aria-expanded={infoOpen}
+              onClick={() => setInfoOpen(!infoOpen)}
+              className={`text-left text-xs leading-snug text-dim side:hidden ${infoOpen ? '' : 'line-clamp-1'}`}
+            >
+              {info}
+            </button>
+            <p className="hidden text-sm leading-snug text-dim side:block [@media(max-height:540px)]:line-clamp-1">{info}</p>
+          </>
+        )}
       </div>
       <input
         ref={fileInput}

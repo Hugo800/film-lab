@@ -1,6 +1,6 @@
 // Browser-Prüfung der Engine: npm run test:engine [-- schritt …]
 // Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190).
-// Schritte: identity seams compare timing abort jpeg thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
+// Schritte: identity seams compare region timing abort jpeg thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
 // Vergleichsbilder je Effekt (strips, grain, cc) nach test-output/engine-v2/.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
@@ -76,6 +76,21 @@ try {
       results[`compare ${name}`] = r;
       expect(r.vsDownscaledFull.mean < 3, `c) Vorschau vs. verkleinerter Vollexport ${name}${params.grainEffect ? '' : ' (ohne Korn)'} ${r.rect[2]}×${r.rect[3]}: Mittel ${r.vsDownscaledFull.mean.toFixed(2)}, max ${r.vsDownscaledFull.max}; vs. Export maxEdge: Mittel ${r.vsSmall?.mean.toFixed(2)}; Rauschen σ Vorschau ${r.noise.preview.toFixed(2)} / Vollexport verkleinert ${r.noise.downFull.toFixed(2)}`);
     }
+  }
+
+  if (want('region')) {
+    const p = { grainEffect: 2, grainSize: 'gross', sharpness: 4, clarity: 5, halation: 0.5 };
+    const r = await T('region', 'DSC03982.JPEG', p, 'classic-chrome', 1200, 800);
+    save('region-lupe', r.png);
+    delete r.png;
+    results.region = r;
+    const d = (x) => `Mittel ${x.mean.toFixed(3)}, max ${x.max}`;
+    expect(r.active.mean <= 1 && r.active.max <= 4 && r.other.mean <= 1 && r.other.max <= 4,
+      `renderRegion ${r.rect.join('/')} vs. Export-Ausschnitt (Korn stark/groß, Schärfe +4, Klarheit +5, Halation 0,5, Classic Chrome): aktive Quelle ${d(r.active)}, andere Quelle ${d(r.other)} (${(r.ms / 1000).toFixed(1)} s)`);
+    expect(r.original.mean <= 1 && r.original.max <= 1, `renderRegion showOriginal vs. Quelle (sRGB-Referenz des Browsers): ${d(r.original)}`);
+    expect(r.preview.max === 0, `Vorschau vor/nach renderRegion: ${d(r.preview)}`);
+    expect(r.errors.zuGross.startsWith('Error') && r.errors.abgebrochen.startsWith('AbortError'),
+      `renderRegion Grenzen: zu groß → ${r.errors.zuGross}; abgebrochen → ${r.errors.abgebrochen}`);
   }
 
   if (want('timing')) {
@@ -162,21 +177,29 @@ try {
     console.log(`Bilder ${OUT2}/grain-stufen-100.png, grain-stufen-verlauf.png`);
   }
 
-  // Color Chrome: Fujis Beispielpaare (aus/stark); Film Lab rechnet aus „aus“ und wird mit „stark“ verglichen.
+  // Color Chrome: Paare aus/stark; Film Lab rechnet aus „aus“ und wird mit „stark“ verglichen.
+  // Color Chrome mit Alik Griffins In-Kamera-Paar (nur der Effekt geändert): Fujis Werbepaar enthält
+  // zusätzlich eine globale Sättigungsänderung (siehe scripts/abgleich-cc-fit.mjs). Der Effekt ist dort klein,
+  // gemessen wird deshalb in den gesättigten Gelb/Grün/Rot-Tönen (OKLab-h 102,5° ± 60°).
   if (want('cc')) {
-    const ref = 'referenz/fujifilm-offiziell-effekte/';
-    for (const [name, off, on, params] of [
-      ['colorchrome', 'colorchrome-aus', 'colorchrome-strong', { colorChrome: 2 }],
-      ['colorchrome-fxblau', 'colorchrome-fxblue-aus', 'colorchrome-fxblue-strong', { colorChromeBlue: 2 }],
+    const fuji = 'referenz/fujifilm-offiziell-effekte/', alik = 'referenz/alikgriffin/AGriffin_GFX100II_45_RealaAce_Kalina_JPG_';
+    for (const [name, off, on, params, hue] of [
+      ['colorchrome', alik + 'Standard-L.jpg', alik + 'CC_S-L.jpg', { colorChrome: 2 }, [102.5, 0.5]],
+      ['colorchrome-fxblau', fuji + 'colorchrome-fxblue-aus.jpg', fuji + 'colorchrome-fxblue-strong.jpg', { colorChromeBlue: 2 }],
     ]) {
-      const r = await T('colorChrome', ref + off + '.jpg', ref + on + '.jpg', params);
+      const r = await T('colorChrome', off, on, params, hue);
       save(`${name}-referenz`, r.png, OUT2);
       delete r.png;
       results[name] = r;
       // Maß auf 8× verkleinerten Bildern: Blätter im Wind bewegen sich zwischen den Aufnahmen.
-      expect(r.small.oursVsOn.dE < r.small.offVsOn.dE * 0.7 && r.small.satOursVsOn.dE < r.small.satOffVsOn.dE * 0.7,
+      const sm = r.small;
+      const ok = hue
+        ? Math.abs(sm.satOffVsOurs.dL - sm.satOffVsOn.dL) <= 0.3 * Math.abs(sm.satOffVsOn.dL) &&
+          sm.satOursVsOn.dE < sm.satOffVsOn.dE * 0.85 && sm.oursVsOn.dE <= sm.offVsOn.dE + 0.05
+        : sm.oursVsOn.dE < sm.offVsOn.dE * 0.7 && sm.satOursVsOn.dE < sm.satOffVsOn.dE * 0.7;
+      expect(ok,
         `${name}: ΔE_OK (×100) aus↔stark ${r.refOffVsOn.dE.toFixed(2)}, Film Lab↔stark ${r.oursVsOn.dE.toFixed(2)}; gesättigte Pixel ${r.satOffVsOn.dE.toFixed(2)} → ${r.satOursVsOn.dE.toFixed(2)} (ΔL Referenz ${r.satOffVsOn.dL.toFixed(2)}, Film Lab ${r.satOffVsOurs.dL.toFixed(2)})`);
-      console.log(`     8× verkleinert: aus↔stark ${r.small.offVsOn.dE.toFixed(2)}, Film Lab↔stark ${r.small.oursVsOn.dE.toFixed(2)}; gesättigt ${r.small.satOffVsOn.dE.toFixed(2)} → ${r.small.satOursVsOn.dE.toFixed(2)}`);
+      console.log(`     8× verkleinert: aus↔stark ${r.small.offVsOn.dE.toFixed(2)}, Film Lab↔stark ${r.small.oursVsOn.dE.toFixed(2)}; gesättigt ${r.small.satOffVsOn.dE.toFixed(2)} → ${r.small.satOursVsOn.dE.toFixed(2)} (ΔL Referenz ${r.small.satOffVsOn.dL.toFixed(2)}, Film Lab ${r.small.satOffVsOurs.dL.toFixed(2)}, n ${r.small.satOffVsOn.n})`);
     }
   }
 
