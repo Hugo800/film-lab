@@ -13,22 +13,30 @@ import {
   type Target,
 } from './gl';
 import {
-  channelGains,
+  colorMatrix,
   containRect,
+  drStrength,
+  drWhite,
   filterMargin,
   fitLongEdge,
   grainLattice,
   leakSpecs,
   planSourceTiles,
+  sharpKernelWeight,
   targetSpan,
+  toColumnMajor,
   type Size,
 } from './plan';
-import { BLUR, HALO_THRESHOLD, MAIN, RESAMPLE } from './shaders';
+import { BLUR, EFFECT_MAP, MAIN, RESAMPLE } from './shaders';
 
 const TILE_LIMIT = 4096; // größter hochgeladener Quellausschnitt (Speicher auf dem iPhone)
 const PREVIEW_MAX = 2560;
-const HALO_SRC_EDGE = 1024; // Halation-Maske wird auf fester Größe gebildet → Export = Vorschau
+const HALO_SRC_EDGE = 1024; // Effektkarte (Halation, Klarheit) aus fester Größe → Export = Vorschau
 const HALO_MAP_EDGE = 512;
+const CLARITY_SIGMA = 0.015; // Radius der Klarheit relativ zur kürzeren Seite
+// Korn-Amplitude je Größe und Stufe (Kodierwerte); abgestimmt an Fujis Grain Effect (scripts/abgleich-pipeline.mjs korn):
+// σ ≈ 2,4 (schwach) / 6,1 (stark) in Mitteltönen bei 24 MP. „klein“ mittelt feinere Gitterpunkte, daher höherer Faktor.
+const GRAIN_AMP = { klein: [0, 0.0171, 0.0432], gross: [0, 0.0105, 0.0264] };
 const LUT_CACHE = 24;
 // Mehr bringt die Vorschau nicht, kostet aber GPU-Zeit pro Regleränderung (gleiche Grenze wie die UI).
 const MAX_BUFFER_PIXELS = 4_000_000;
@@ -54,7 +62,7 @@ export interface FilmEngine extends Engine {
 interface Resources {
   main: Program;
   resample: Program;
-  threshold: Program;
+  effectMap: Program;
   blur: Program;
   vao: WebGLVertexArrayObject;
   black: WebGLTexture; // 1×1 Ersatz für fehlende Halation/LUT
@@ -93,7 +101,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   let generation = 0;
   let pending: Promise<void> | null = null;
   let rebuilding = false;
-  let halo: { key: string; map: Target } | null = null;
+  let effectCache: { key: string; map: Target } | null = null;
   let last: { params: LookParams; opts: RenderOptions } | null = null;
   let disposed = false;
 
@@ -104,7 +112,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     return {
       main: createProgram(gl!, MAIN),
       resample: createProgram(gl!, RESAMPLE),
-      threshold: createProgram(gl!, HALO_THRESHOLD),
+      effectMap: createProgram(gl!, EFFECT_MAP),
       blur: createProgram(gl!, BLUR),
       vao: gl!.createVertexArray()!,
       black,
@@ -175,20 +183,43 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     gl!.uniform1i(p.loc('uSrcP3'), p3 ? 1 : 0);
   }
 
-  function setLook(p: Program, l: Lut3D | null, params: LookParams, haloMap: Target | null) {
+  function setDevelop(p: Program, params: LookParams) {
+    gl!.uniformMatrix3fv(p.loc('uColorMat'), false, toColumnMajor(colorMatrix(params)));
+    gl!.uniform1f(p.loc('uDR'), drStrength(params.dynamicRange));
+    gl!.uniform1f(p.loc('uDRWhite'), drWhite(params));
+  }
+
+  /** `scale` = Zielpixel je Pixel des Vollbilds (für den Radius der Schärfung). */
+  function setLook(p: Program, l: Lut3D | null, params: LookParams, effects: Target | null, scale: number) {
     const r = alive();
-    const g = channelGains(params);
-    gl!.uniform3f(p.loc('uGains'), g[0], g[1], g[2]);
+    setDevelop(p, params);
     const useLut = !!l && params.strength > 0;
     bindTex(1, gl!.TEXTURE_3D, useLut ? lutTexture(r, l!) : r.black3d);
     gl!.uniform1i(p.loc('uLut'), 1);
     gl!.uniform1i(p.loc('uUseLut'), useLut ? 1 : 0);
     gl!.uniform1f(p.loc('uLutSize'), l?.size ?? 2);
     gl!.uniform1f(p.loc('uStrength'), params.strength);
-    bindTex(2, gl!.TEXTURE_2D, haloMap?.tex ?? r.black);
-    gl!.uniform1i(p.loc('uHalo'), 2);
-    gl!.uniform1f(p.loc('uHalation'), haloMap ? params.halation : 0);
-    gl!.uniform1f(p.loc('uGrain'), params.grain);
+    bindTex(2, gl!.TEXTURE_2D, effects?.tex ?? r.black);
+    gl!.uniform1i(p.loc('uMap'), 2);
+    gl!.uniform1f(p.loc('uHalation'), effects ? params.halation : 0);
+    const clarity = effects ? params.clarity : 0;
+    let sharpW = params.sharpness !== 0 ? sharpKernelWeight(scale) : 0;
+    if (sharpW < 0.005) sharpW = 0; // unsichtbar klein (z. B. Look-Kacheln): Abgriffe sparen
+    const lab =
+      params.highlightTone !== 0 || params.shadowTone !== 0 || params.color !== 0 || params.colorChrome !== 0 ||
+      params.colorChromeBlue !== 0 || params.monoWarmCool !== 0 || params.monoMagentaGreen !== 0 ||
+      clarity !== 0 || sharpW > 0;
+    gl!.uniform1i(p.loc('uLab'), lab ? 1 : 0);
+    gl!.uniform1f(p.loc('uToneH'), params.highlightTone);
+    gl!.uniform1f(p.loc('uToneS'), params.shadowTone);
+    gl!.uniform1f(p.loc('uColor'), params.color);
+    gl!.uniform1f(p.loc('uCC'), params.colorChrome);
+    gl!.uniform1f(p.loc('uCCBlue'), params.colorChromeBlue);
+    gl!.uniform2f(p.loc('uMono'), params.monoWarmCool, params.monoMagentaGreen);
+    gl!.uniform1f(p.loc('uClarity'), clarity);
+    gl!.uniform1f(p.loc('uSharp'), params.sharpness);
+    gl!.uniform1f(p.loc('uSharpW'), sharpW);
+    gl!.uniform1f(p.loc('uGrain'), GRAIN_AMP[params.grainSize]?.[params.grainEffect] ?? 0);
     gl!.uniform1f(p.loc('uGrainLattice'), grainLattice(params.grainSize));
     gl!.uniform1f(p.loc('uVignette'), params.vignette);
     gl!.uniform1f(p.loc('uLeak'), params.leak);
@@ -247,23 +278,27 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     }
   }
 
-  /** Halation-Karte: Lichter über Schwelle, unscharf (zwei Radien relativ zur kürzeren Seite). */
-  function buildHaloMap(haloSrc: Target, params: LookParams): Target {
+  const needsMap = (p: LookParams) => p.halation > 0 || p.clarity !== 0;
+
+  /**
+   * Effektkarte: Lichter über der Schwelle (Halation, zwei Radien) und Helligkeit (Klarheit),
+   * unscharf mit Radien relativ zur kürzeren Seite. Global vorab, damit Kacheln nahtlos sind.
+   */
+  function buildEffectMap(haloSrc: Target, params: LookParams): Target {
     const r = alive();
     const s = fitLongEdge(haloSrc.width, haloSrc.height, HALO_MAP_EDGE);
     const a = createTarget(gl!, s.width, s.height, r.floatTargets);
     const b = createTarget(gl!, s.width, s.height, r.floatTargets);
-    const g = channelGains(params);
     gl!.bindFramebuffer(gl!.FRAMEBUFFER, a.fbo);
     gl!.viewport(0, 0, s.width, s.height);
-    gl!.useProgram(r.threshold.prog);
+    gl!.useProgram(r.effectMap.prog);
     bindTex(0, gl!.TEXTURE_2D, haloSrc.tex);
-    gl!.uniform1i(r.threshold.loc('uSrc'), 0);
-    gl!.uniform2f(r.threshold.loc('uOutSize'), s.width, s.height);
-    gl!.uniform3f(r.threshold.loc('uGains'), g[0], g[1], g[2]);
-    draw(r.threshold);
+    gl!.uniform1i(r.effectMap.loc('uSrc'), 0);
+    gl!.uniform2f(r.effectMap.loc('uOutSize'), s.width, s.height);
+    setDevelop(r.effectMap, params);
+    draw(r.effectMap);
     const short = Math.min(s.width, s.height);
-    const sigma: [number, number] = [0.005 * short, 0.02 * short];
+    const sigma = [0.005 * short, 0.02 * short, CLARITY_SIGMA * short] as const;
     for (const [from, to, dir] of [
       [a, b, [1, 0]],
       [b, a, [0, 1]],
@@ -273,21 +308,22 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
       bindTex(0, gl!.TEXTURE_2D, from.tex);
       gl!.uniform1i(r.blur.loc('uSrc'), 0);
       gl!.uniform2f(r.blur.loc('uDir'), dir[0], dir[1]);
-      gl!.uniform2f(r.blur.loc('uSigma'), sigma[0], sigma[1]);
+      gl!.uniform3f(r.blur.loc('uSigma'), sigma[0], sigma[1], sigma[2]);
       draw(r.blur);
     }
     deleteTarget(gl!, b);
     return a;
   }
 
-  function haloFor(params: LookParams): Target | null {
-    if (!prepared || params.halation <= 0) return null;
-    const key = `${generation}|${params.exposure}|${params.temperature}|${params.tint}`;
-    if (halo?.key !== key) {
-      deleteTarget(gl!, halo?.map);
-      halo = { key, map: buildHaloMap(prepared.haloSrc, params) };
+  function effectsFor(params: LookParams): Target | null {
+    if (!prepared || !needsMap(params)) return null;
+    const p = params;
+    const key = `${generation}|${p.exposure}|${p.wbKelvin}|${p.wbShiftR}|${p.wbShiftB}|${p.dynamicRange}`;
+    if (effectCache?.key !== key) {
+      deleteTarget(gl!, effectCache?.map);
+      effectCache = { key, map: buildEffectMap(prepared.haloSrc, params) };
     }
-    return halo.map;
+    return effectCache.map;
   }
 
   /** Pixel pro CSS-Pixel: devicePixelRatio, aber Zeichenpuffer höchstens MAX_BUFFER_PIXELS. */
@@ -310,9 +346,9 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
   function freePrepared() {
     deleteTarget(gl!, prepared?.preview);
     deleteTarget(gl!, prepared?.haloSrc);
-    deleteTarget(gl!, halo?.map);
+    deleteTarget(gl!, effectCache?.map);
     prepared = null;
-    halo = null;
+    effectCache = null;
   }
 
   /** Lädt die Quelle neu; `onlyPreview` baut nur die Vorschau neu (größerer Canvas). */
@@ -384,12 +420,12 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     const rect = containRect(source.width, source.height, cw, ch);
     const out = { width: rect.x1 - rect.x0, height: rect.y1 - rect.y0 };
     const r = res;
-    const haloMap = haloFor(params);
+    const effects = effectsFor(params);
     gl!.bindFramebuffer(gl!.FRAMEBUFFER, null);
     gl!.viewport(rect.x0, ch - rect.y1, out.width, out.height);
     gl!.useProgram(r.main.prog);
     setSampling(r.main, pv.tex, out, pv, [0, 0], [pv.width, pv.height], [1, -1], [-rect.x0, ch - rect.y0]);
-    setLook(r.main, lut, params, haloMap);
+    setLook(r.main, lut, params, effects, out.width / source.width);
     gl!.uniform1i(r.main.loc('uOriginal'), opts.showOriginal ? 1 : 0);
     gl!.uniform1f(r.main.loc('uSplit'), opts.split === undefined || opts.showOriginal ? -1 : opts.split);
     gl!.uniform1f(r.main.loc('uLineWidth'), Math.max(1, Math.round(1.5 * dpr)));
@@ -409,12 +445,12 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     const t = createTarget(gl!, s.width, s.height);
     const buf = new Uint8ClampedArray(s.width * s.height * 4);
     try {
-      const haloMap = haloFor(params); // vor dem Binden: baut ggf. mit eigenem Framebuffer
+      const effects = effectsFor(params); // vor dem Binden: baut ggf. mit eigenem Framebuffer
       gl!.bindFramebuffer(gl!.FRAMEBUFFER, t.fbo);
       gl!.viewport(0, 0, s.width, s.height);
       gl!.useProgram(r.main.prog);
       setSampling(r.main, pv.tex, s, pv, [0, 0], [pv.width, pv.height], [1, 1], [0, 0]);
-      setLook(r.main, l, params, haloMap);
+      setLook(r.main, l, params, effects, s.width / source.width);
       draw(r.main);
       gl!.readPixels(0, 0, s.width, s.height, gl!.RGBA, gl!.UNSIGNED_BYTE, buf);
     } finally {
@@ -450,13 +486,13 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     const tileW = Math.max(...spans.map((s) => s.x[1] - s.x[0]));
     const tileH = Math.max(...spans.map((s) => s.y[1] - s.y[0]));
 
-    let haloMap: Target | null = null;
+    let effects: Target | null = null;
     let fbo: Target | null = null;
     const tex = createTexture(gl!);
     try {
-      if (params.halation > 0) {
+      if (needsMap(params)) {
         const [haloSrc] = await resample(src, [fitLongEdge(src.width, src.height, HALO_SRC_EDGE)], () => !signal?.aborted);
-        haloMap = buildHaloMap(haloSrc, params);
+        effects = buildEffectMap(haloSrc, params);
         deleteTarget(gl!, haloSrc);
       }
       fbo = createTarget(gl!, tileW, tileH);
@@ -472,7 +508,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
         gl!.viewport(0, 0, x[1] - x[0], y[1] - y[0]);
         gl!.useProgram(r.main.prog);
         setSampling(r.main, tex, outSize, src, [u.x0, u.y0], [u.x1 - u.x0, u.y1 - u.y0], [1, 1], [x[0], y[0]], isP3(src));
-        setLook(r.main, l, params, haloMap);
+        setLook(r.main, l, params, effects, outW / src.width);
         draw(r.main);
         // Kachelzeile 0 ist Bildzeile y0 (Bildkoordinaten von oben) → direkt in den Gesamtpuffer.
         gl!.pixelStorei(gl!.PACK_ALIGNMENT, 1);
@@ -489,7 +525,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
       if (!gl!.isContextLost()) {
         gl!.deleteTexture(tex);
         deleteTarget(gl!, fbo);
-        deleteTarget(gl!, haloMap);
+        deleteTarget(gl!, effects);
       }
     }
   }
@@ -515,7 +551,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
     e.preventDefault(); // sonst wird der Kontext nie wiederhergestellt
     res = null;
     prepared = null;
-    halo = null;
+    effectCache = null;
     pending = null;
     generation++;
   }
@@ -541,7 +577,7 @@ export function createEngine(canvas: HTMLCanvasElement): FilmEngine {
       gl!.deleteTexture(res.black);
       gl!.deleteTexture(res.black3d);
       gl!.deleteVertexArray(res.vao);
-      for (const p of [res.main, res.resample, res.threshold, res.blur]) gl!.deleteProgram(p.prog);
+      for (const p of [res.main, res.resample, res.effectMap, res.blur]) gl!.deleteProgram(p.prog);
     }
     disposed = true;
     res = null;

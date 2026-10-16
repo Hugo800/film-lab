@@ -1,6 +1,6 @@
 // Funktionstest der Oberfläche im Browser: npm run ui:flow [-- handy|pc]
 // Startet den Test-Dev-Server (Port TEST_PORT, Vorgabe 5190). Bedienung per Maus/Tastatur wie ein Nutzer;
-// Bildschirmfotos und Download nach test-output/ui/.
+// Bildschirmfotos und Download nach test-output/ui-v2/.
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { launch, startDevServer } from './lib/browser.mjs';
@@ -8,7 +8,8 @@ import { launch, startDevServer } from './lib/browser.mjs';
 const MODE = process.argv[2] ?? 'handy';
 const server = await startDevServer();
 const URL = `${server.url}/`;
-const OUT = resolve('test-output/ui');
+const OUT = resolve('test-output/ui-v2');
+const ZIP = resolve('testbilder/luts/fujifilm-official/zips/gfx-eterna-55-3d-lut-v110.zip');
 const DL = resolve(OUT, 'downloads');
 const PHOTOS = ['testbilder/DSC04866.JPEG', 'testbilder/DSC03427.JPEG'].map((p) => resolve(p));
 const CUBE = resolve(OUT, 'test.cube');
@@ -94,12 +95,17 @@ await click(`b.getAttribute('aria-label')?.startsWith('Vorher-Nachher-Teiler aus
 // 4 Look wählen, Regler
 await click(`b.id === 'tab-looks'`);
 await sleep(200);
-const lookNames = await page.$$eval('section[aria-label] button[aria-pressed]', (b) => b.map((x) => x.innerText.trim()));
+const lookNames = await page.$$eval('section[aria-label] button[aria-pressed][data-look]', (b) => b.map((x) => x.dataset.look));
+const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
+ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), 'Gruppen Fujifilm, Leica, Kodak, Eigene', groups.join(' | '));
+ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis sichtbar');
+ok(await page.evaluate(() => document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed]').length > 3), 'Fujifilm-Gruppe hat Looks');
 console.log('Looks:', lookNames.join(' | '));
 if (lookNames.length > 2) {
-  await click(`b.getAttribute('aria-pressed') !== null && b.innerText.trim() === ${JSON.stringify(lookNames[2])}`);
+  await click(`b.getAttribute('aria-pressed') !== null && b.dataset.look === ${JSON.stringify(lookNames[2])}`);
   await sleep(300);
-  ok(await page.evaluate((n) => [...document.querySelectorAll('button[aria-pressed=true]')].some((b) => b.innerText.trim() === n), lookNames[2]), `Look „${lookNames[2]}“ ausgewählt`);
+  ok(await page.evaluate((n) => [...document.querySelectorAll('button[aria-pressed=true]')].some((b) => b.dataset.look === n), lookNames[2]), `Look „${lookNames[2]}“ ausgewählt`);
+  await shot('0-looks');
 }
 await click(`b.id === 'tab-anpassen'`);
 await sleep(200);
@@ -120,7 +126,108 @@ await sleep(200);
 ok((await exp()) === 0, 'Doppeltipp auf den Namen setzt zurück');
 await shot('4-anpassen');
 
-// 5 Würfeln
+// 5b Segmente, Weißabgleich, Halbschritte, Vorzeichen
+await click(`b.id === 'tab-anpassen'`);
+const seg = (param) => page.$eval(`#regler-${param} [aria-checked=true]`, (e) => e.textContent.trim()).catch(() => null);
+const pick = (param, label) => click(`b.getAttribute('role') === 'radio' && !!b.closest('#regler-${param}') && b.textContent.trim() === ${JSON.stringify(label)}`);
+await pick('grainEffect', 'Stark');
+ok((await seg('grainEffect')) === 'Stark', 'Körnung „Stark“ gewählt');
+await pick('grainSize', 'Groß');
+ok((await seg('grainSize')) === 'Groß', 'Korngröße „Groß“ gewählt');
+await pick('dynamicRange', 'DR400');
+ok((await seg('dynamicRange')) === 'DR400', 'DR400 gewählt');
+await click(aria('Körnung zurücksetzen'));
+const grainDefault = await seg('grainEffect');
+ok(grainDefault !== 'Stark', 'Reset setzt Körnung auf den Look-Standard', String(grainDefault));
+await pick('grainEffect', 'Aus');
+ok(await page.$eval('#regler-grainSize button', (b) => b.disabled), 'Korngröße ist bei Körnung „Aus“ gesperrt');
+await pick('wbQuick', 'Schatten');
+ok((await page.$eval('#regler-wbKelvin', (e) => Number(e.value))) === 7500, 'Schnellwahl Schatten setzt 7500 K');
+ok((await text()).includes('7500 K'), 'Kelvin-Wert angezeigt');
+await pick('wbQuick', 'Auto');
+ok((await text()).includes('Auto'), 'Auto wählbar');
+await page.focus('#regler-wbShiftB');
+for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+ok((await text()).includes('\u22123'), 'WB-Verschiebung Blau zeigt −3 (Minuszeichen, Vorzeichen)');
+await page.focus('#regler-highlightTone');
+for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+ok((await text()).includes('+1,5'), 'Lichter in 0,5-Schritten: +1,5');
+await click(aria('Verschiebung Blau zurücksetzen'));
+await shot('4b-segmente');
+
+// 5c Rezept einfügen
+await click(`b.id === 'tab-looks'`);
+await click(aria('Rezept einfügen'));
+await page.waitForSelector('#rezept-text');
+await shot('4c-rezept-leer');
+const RECIPE = 'Film Simulation: Classic Chrome\nGrain Effect: Strong, Small\nColor Chrome Effect: Strong\nColor Chrome FX Blue: Off\nWhite Balance: 5500K, +2 Red & -4 Blue\nDynamic Range: DR400\nHighlight: -1\nShadow: +0.5\nColor: +2\nSharpness: -2\nHigh ISO NR: -4\nClarity: -2\nExposure Compensation: +1/3 to +1\nIrgendwas: 3';
+await page.click('#rezept-text');
+await page.keyboard.type(RECIPE.split('\n').slice(0, 2).join('\n'));
+await page.$eval('#rezept-text', (el, t) => {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, t);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}, RECIPE);
+ok(await waitFor(() => document.querySelectorAll('#rezept-erkannt li').length >= 10), 'Rezept: erkannte Werte als Liste');
+const dlg = await page.$eval('[role=dialog]', (d) => d.innerText);
+ok(dlg.includes('High ISO NR') && dlg.includes('Irgendwas') && dlg.includes('Nicht übernommen'), 'Rezept: Unbekanntes wird angezeigt');
+ok(/Look:\s*Classic Chrome/.test(dlg), 'Rezept: Look „Classic Chrome“ erkannt');
+await shot('4d-rezept');
+await page.type('#rezept-name', 'Test-Chrome');
+await click(`b.textContent.trim() === 'Als Rezept speichern' && !!b.closest('[role=dialog]')`);
+await sleep(500);
+ok(await page.evaluate(() => !document.querySelector('[role=dialog]')), 'Rezept-Dialog schließt nach dem Speichern');
+await click(`b.id === 'tab-anpassen'`);
+ok((await seg('grainEffect')) === 'Stark' && (await seg('colorChrome')) === 'Stark' && (await seg('dynamicRange')) === 'DR400', 'Rezept gesetzt: Körnung, Color Chrome, DR');
+ok((await page.$eval('#regler-wbKelvin', (e) => Number(e.value))) === 5500, 'Rezept gesetzt: 5500 K');
+await click(`b.id === 'tab-looks'`);
+await sleep(1500);
+ok((await text()).includes('Test-Chrome'), 'Rezept „Test-Chrome“ unter „Eigene“');
+await shot('4e-rezept-gespeichert');
+
+// 5d Fujifilm-Originale
+await click(`b.textContent.includes('Originale laden')`);
+await page.waitForSelector('[role=dialog]');
+const od = await page.$eval('[role=dialog]', (d) => d.innerText);
+ok(od.includes('fujifilm-x.com') && od.includes('GFX ETERNA 55') && od.includes('nicht hochgeladen'), 'Originale: Erklärtext und Link');
+ok(await page.$eval('[role=dialog] a', (a) => a.href === 'https://www.fujifilm-x.com/support/download/lut/'), 'Originale: Link zeigt auf die Fujifilm-Seite');
+await shot('4f-originale');
+if (existsSync(ZIP)) {
+  await (await page.$('input[data-testid=originale-datei]')).uploadFile(ZIP);
+  const done = await waitFor(() => /\d+ Originale? geladen/.test(document.querySelector('[role=dialog]')?.innerText ?? '') || !!document.querySelector('[role=dialog] [role=alert]'), 240000);
+  const after = await page.$eval('[role=dialog]', (d) => d.innerText);
+  const loadedOk = done && /\d+ Originale? geladen/.test(after);
+  ok(loadedOk, 'Originale: ZIP eingelesen', after.replace(/\s+/g, ' ').slice(-200));
+  await shot('4g-originale-geladen');
+  if (loadedOk) {
+    ok(await page.$eval('#originale-verwenden', (e) => e.checked), 'Originale: „verwenden“ ist nach dem Laden an');
+    await click(aria('Schließen'));
+    await sleep(300);
+    await click(`b.id === 'tab-looks'`);
+    await sleep(2500);
+    const badges = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Original').length);
+    ok(badges > 0, 'Fuji-Looks mit Original-LUT zeigen das Abzeichen', String(badges));
+    await shot('4h-abzeichen');
+    await page.reload({ waitUntil: 'networkidle0' });
+    await (await page.$('#datei-eingabe')).uploadFile(...PHOTOS);
+    await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
+    await sleep(1500);
+    const badges2 = await page.evaluate(() => [...document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed] span[aria-hidden]')].filter((s) => s.textContent === 'Original').length);
+    ok(badges2 > 0, 'Originale überleben das Neuladen', String(badges2));
+    await click(`b.textContent.trim() === 'Originale'`);
+    await page.waitForSelector('#originale-verwenden');
+    await page.click('#originale-verwenden');
+    await sleep(500);
+    ok(!(await page.$eval('#originale-verwenden', (e) => e.checked)), 'Schalter „Originale verwenden“ lässt sich ausschalten');
+    await click(`b.textContent.includes('entfernen')`);
+    await sleep(300);
+    ok(!(await page.evaluate(() => !!document.querySelector('#originale-verwenden'))), 'Originale lassen sich entfernen');
+  }
+  if (await page.evaluate(() => !!document.querySelector('[role=dialog]'))) await click(aria('Schließen'));
+} else console.log('SKIP Originale-ZIP nicht vorhanden');
+await sleep(200);
+
+// 5 Würfeln (nach dem Rezept, das alle Regler auf Look-Werte setzt)
+await click(`b.id === 'tab-anpassen'`);
 await page.focus('#regler-leak');
 for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
 ok(await click(`b.getAttribute('aria-label') === 'Light Leaks neu würfeln'`), 'Neu würfeln klickbar');
@@ -144,13 +251,14 @@ await click(`b.id === 'tab-anpassen'`);
 ok((await page.$eval('#regler-leak', (e) => Number(e.value))) > 0.15, '„Auf alle anwenden“ übernimmt die Einstellungen');
 
 // 7 Preset und LUT
-await click(`b.textContent.includes('Als Preset speichern')`);
+await click(`b.id === 'tab-anpassen'`);
+await click(`b.textContent.includes('Als Rezept speichern')`);
 await page.waitForSelector('[role=dialog] input');
 await page.type('[role=dialog] input', 'Mein Test');
 await click(`b.textContent.trim() === 'Speichern'`);
 await click(`b.id === 'tab-looks'`);
 await sleep(1500);
-ok((await text()).includes('Mein Test'), 'Preset erscheint unter „Eigene“');
+ok((await text()).includes('Mein Test'), 'Rezept erscheint unter „Eigene“');
 const cubeInput = await page.$('input[accept^=".cube"]');
 await cubeInput.uploadFile(CUBE);
 await sleep(1500);
@@ -161,7 +269,7 @@ await (await page.$('#datei-eingabe')).uploadFile(PHOTOS[0]);
 await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
 await sleep(1500);
 const t2 = await text();
-ok(t2.includes('Mein Test') && t2.includes('Testlut'), 'Preset und LUT überleben das Neuladen');
+ok(t2.includes('Mein Test') && t2.includes('Testlut'), 'Rezept und LUT überleben das Neuladen');
 // kaputte LUT
 writeFileSync(resolve(OUT, 'kaputt.cube'), 'das ist keine LUT');
 await (await page.$('input[accept^=".cube"]')).uploadFile(resolve(OUT, 'kaputt.cube'));

@@ -4,7 +4,7 @@ import { ExportDialog } from './ExportDialog';
 import { addPhotos } from './intake';
 import { registerCustomLut } from './lookRegistry';
 import { StartView } from './StartView';
-import { loadPresets, loadStoredLuts } from './storage';
+import { loadOfficialLuts, loadPresets, loadStoredLuts, loadUseOfficial } from './storage';
 import { useStore } from './store';
 import { Toast } from './Toast';
 
@@ -20,6 +20,9 @@ export default function App() {
       if (list.length === 0) return;
       for (const l of list) registerCustomLut(l.id, l.lut);
       useStore.getState().setCustomLuts(list);
+    });
+    void loadOfficialLuts().then((luts) => {
+      if (luts.size > 0) useStore.getState().setOfficialLuts(luts, loadUseOfficial());
     });
   }, []);
 

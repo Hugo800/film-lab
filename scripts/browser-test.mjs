@@ -1,7 +1,7 @@
 // Ende-zu-Ende-Test der gebauten App: npm run test:browser
 // Baut nach test-output/e2e-build, liefert statisch aus (Port TEST_PORT, Vorgabe 5190) und bedient die
 // Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): 2 JPEGs + 1 ARW laden,
-// Looks und Regler, Export einzeln und als ZIP. Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
+// Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und als ZIP. Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -11,8 +11,10 @@ import { build } from 'vite';
 import { launch, PORT } from './lib/browser.mjs';
 
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
-const BUILD = resolve('test-output/e2e-build');
-const OUT = resolve('test-output/e2e');
+// Mit eigenem TEST_PORT eigene Ordner, damit parallele Läufe sich nicht überschreiben.
+const SUFFIX = process.env.TEST_PORT ? `-${process.env.TEST_PORT}` : '';
+const BUILD = resolve(`test-output/e2e-build${SUFFIX}`);
+const OUT = resolve(`test-output/e2e${SUFFIX}`);
 const PHOTOS = ['testbilder/DSC04866.JPEG', 'testbilder/DSC01603.JPEG', 'testbilder/raw/DSC01542.ARW'].map((p) => resolve(p));
 const RAW_SIZE = [6000, 4000]; // aktive Fläche der a6000 (siehe scripts/raw-test.mjs)
 const BASE = `http://localhost:${PORT}`;
@@ -86,7 +88,7 @@ function expected(path) {
 
 // --- Build und statischer Server ---
 
-console.log('Baue App nach test-output/e2e-build …');
+console.log(`Baue App nach ${BUILD} …`);
 await build({ logLevel: 'warn', build: { outDir: BUILD, emptyOutDir: true } });
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm',
@@ -146,12 +148,40 @@ async function run(mode, viewport) {
   const loaded = () =>
     waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible' &&
       ![...document.querySelectorAll('[role=status]')].some((s) => s.textContent.includes('wird geladen')), 120_000);
+  const text = () => page.evaluate(() => document.body.innerText);
   const dialogText = () => page.$eval('[role=dialog]', (d) => d.innerText).catch(() => '');
-  const lookTiles = () => page.$$eval('section[aria-label] button[aria-pressed]', (b) => b.map((x) => x.innerText.trim()));
+  const lookTiles = () => page.$$eval('section[aria-label] button[aria-pressed][data-look]', (b) => b.map((x) => x.dataset.look));
   const chooseLook = async (name) => {
     await press(`b.id === 'tab-looks'`);
-    await press(`b.getAttribute('aria-pressed') !== null && b.innerText.trim() === a`, name);
-    return waitFor((n) => [...document.querySelectorAll('button[aria-pressed=true]')].some((b) => b.innerText.trim() === n), 5000, name);
+    await press(`b.getAttribute('aria-pressed') !== null && b.dataset.look === a`, name);
+    return waitFor((n) => [...document.querySelectorAll('button[aria-pressed=true]')].some((b) => b.dataset.look === n), 5000, name);
+  };
+  /** Segment („Stark“ bei Körnung …) wählen; liefert, ob es danach gewählt ist. */
+  const segment = async (param, label) => {
+    await press(`b.id === 'tab-anpassen'`);
+    await press(`b.getAttribute('role') === 'radio' && !!b.closest('#regler-' + a[0]) && b.textContent.trim() === a[1]`, [param, label]);
+    return page.$eval(`#regler-${param} [aria-checked=true]`, (e) => e.textContent.trim()).then((t) => t === label, () => false);
+  };
+  const sliderValue = (param) => page.$eval(`#regler-${param}`, (e) => Number(e.value));
+  const radioValue = (param) => page.$eval(`#regler-${param} [aria-checked=true]`, (e) => e.textContent.trim()).catch(() => null);
+  /** Rezepttext in den Dialog einfügen; mit `save` zusätzlich unter „Eigene“ speichern. */
+  const pasteRecipe = async (text, save) => {
+    await press(`b.id === 'tab-looks'`);
+    await press(`b.getAttribute('aria-label') === 'Rezept einfügen'`);
+    await page.waitForSelector('#rezept-text');
+    await page.$eval('#rezept-text', (el, t) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      set.call(el, t);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, text);
+    const recognized = await waitFor(() => !!document.querySelector('#rezept-erkannt li'), 5000);
+    const shown = await dialogText();
+    if (save) {
+      await page.type('#rezept-name', save);
+      await press(`b.textContent.trim() === 'Als Rezept speichern' && !!b.closest('[role=dialog]')`);
+    } else await press(`b.textContent.trim() === 'Auf dieses Foto anwenden'`);
+    await sleep(300);
+    return { recognized, shown };
   };
   const nudge = async (param, steps) => {
     await press(`b.id === 'tab-anpassen'`);
@@ -243,16 +273,37 @@ async function run(mode, viewport) {
     ok(strip, `Filmstreifen mit ${PHOTOS.length} Fotos`);
     const looks = await lookTiles();
     ok(looks.length > 5, `${looks.length} Looks zur Wahl`);
+    const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
+    ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), `Gruppen: ${groups.join(' | ')}`);
+    ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis sichtbar');
 
     // Foto 1: Look + Regler, Vorschau ändert sich
     const before = await previewShot();
     ok(await chooseLook(looks[2]), `Foto 1: Look „${looks[2]}“`);
     const ex = await nudge('exposure', 4);
     ok(ex.after > ex.before, `Foto 1: Belichtung ${ex.before} → ${ex.after}`);
-    const gr = await nudge('grain', 5);
-    ok(gr.after > gr.before, `Foto 1: Korn ${gr.before} → ${gr.after}`);
+    const hl = await nudge('highlightTone', 3);
+    ok(hl.after === hl.before + 1.5, `Foto 1: Lichter ${hl.before} → ${hl.after} (0,5er-Schritte)`);
+    ok(await segment('grainEffect', 'Stark'), 'Foto 1: Körnung „Stark“ gewählt');
+    ok(await segment('grainSize', 'Groß'), 'Foto 1: Korngröße „Groß“ gewählt');
+    ok(await segment('dynamicRange', 'DR400'), 'Foto 1: DR400 gewählt');
     await sleep(500);
     ok(before !== (await previewShot()), 'Foto 1: Vorschau zeigt die Änderung');
+
+    // Rezept einfügen: setzt Look und Einstellungen, lässt sich als eigenes Rezept speichern
+    const r = await pasteRecipe(
+      'Film Simulation: Classic Chrome\nGrain Effect: Weak, Small\nColor Chrome Effect: Strong\nColor Chrome FX Blue: Weak\nWhite Balance: 6500K, +2 Red & -4 Blue\nDynamic Range: DR200\nHighlight: -1.5\nColor: +2\nHigh ISO NR: -4\nExposure Compensation: +1/3 to +1',
+      'Mein Rezept',
+    );
+    ok(r.recognized && r.shown.includes('Nicht übernommen') && r.shown.includes('High ISO NR'), 'Rezept: erkannte Werte und „Nicht übernommen“ werden gezeigt');
+    await press(`b.id === 'tab-anpassen'`);
+    ok((await sliderValue('wbKelvin')) === 6500 && (await sliderValue('wbShiftR')) === 2 && (await sliderValue('wbShiftB')) === -4, 'Rezept: Weißabgleich 6500 K, +2/−4');
+    ok((await sliderValue('highlightTone')) === -1.5 && (await sliderValue('color')) === 2, 'Rezept: Lichter −1,5, Farbe +2');
+    ok((await radioValue('grainEffect')) === 'Schwach' && (await radioValue('grainSize')) === 'Klein' && (await radioValue('colorChrome')) === 'Stark' && (await radioValue('dynamicRange')) === 'DR200', 'Rezept: Körnung, Color Chrome, DR');
+    ok(Math.abs((await sliderValue('exposure')) - 0.65) < 0.06, 'Rezept: Belichtung aus Bereich gemittelt');
+    ok((await text()).includes('−1,5') && (await text()).includes('+2'), 'Werte mit Vorzeichen und Komma angezeigt');
+    await press(`b.id === 'tab-looks'`);
+    ok((await lookTiles()).includes('Mein Rezept'), 'Gespeichertes Rezept erscheint unter „Eigene“');
 
     // Foto 2 und das RAW: eigene Looks
     ok(await selectPhoto(2), 'Foto 2 geladen');

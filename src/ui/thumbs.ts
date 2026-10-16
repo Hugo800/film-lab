@@ -64,6 +64,7 @@ export function useThumbnails() {
   const engineReady = useStore((s) => s.engineReady);
   const nLuts = useStore((s) => s.customLuts.length);
   const nPresets = useStore((s) => s.presets.length);
+  const lutEpoch = useStore((s) => s.lutEpoch);
 
   useEffect(() => {
     if (!engineReady || status !== 'bereit') return;
@@ -106,5 +107,5 @@ export function useThumbnails() {
     return () => {
       cancelled = true;
     };
-  }, [engineReady, status, version, nLuts, nPresets]);
+  }, [engineReady, status, version, nLuts, nPresets, lutEpoch]);
 }

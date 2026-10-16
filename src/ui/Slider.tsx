@@ -4,6 +4,8 @@ import { RotateCcw } from 'lucide-react';
 interface Props {
   id: string;
   label: string;
+  /** Fuji-Begriff, klein hinter dem Namen. */
+  hint?: string;
   value: number;
   defaultValue: number;
   min: number;
@@ -13,6 +15,8 @@ interface Props {
   onChange: (v: number) => void;
   onReset: () => void;
   disabled?: boolean;
+  /** Überschreibt den Vergleich mit dem Standardwert (z. B. Weißabgleich „Auto“ gegen Regler 5500 K). */
+  changed?: boolean;
 }
 
 /** Füllung der Spur: von links, bei Reglern mit Mitte (min < 0) von der Mitte aus. */
@@ -22,9 +26,9 @@ function track(value: number, min: number, max: number): string {
   return `linear-gradient(90deg, var(--color-line) ${a}%, var(--color-accent) ${a}%, var(--color-accent) ${b}%, var(--color-line) ${b}%)`;
 }
 
-export function Slider({ id, label, value, defaultValue, min, max, step, format, onChange, onReset, disabled }: Props) {
+export function Slider({ id, label, hint, value, defaultValue, min, max, step, format, onChange, onReset, disabled, changed: changedProp }: Props) {
   const lastTap = useRef(0);
-  const changed = Math.abs(value - defaultValue) > step / 2;
+  const changed = changedProp ?? Math.abs(value - defaultValue) > step / 2;
 
   // Doppeltipp auf Name oder Wert setzt zurück; auf dem Regler selbst bliebe er beim Ziehen im Weg.
   const onTap = () => {
@@ -39,6 +43,7 @@ export function Slider({ id, label, value, defaultValue, min, max, step, format,
         <div className="flex items-baseline justify-between pr-1 select-none" onPointerUp={onTap}>
           <label htmlFor={id} className="text-sm text-fg">
             {label}
+            {hint && <span className="ml-1.5 text-xs text-dim">({hint})</span>}
           </label>
           <output htmlFor={id} className={`text-[13px] tabular-nums ${changed ? 'text-accent' : 'text-dim'}`}>
             {format(value)}

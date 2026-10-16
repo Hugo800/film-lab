@@ -30,6 +30,7 @@ export function Preview() {
   const split = useStore((s) => s.split);
   const engineReady = useStore((s) => s.engineReady);
   const engineError = useStore((s) => s.engineError);
+  const lutEpoch = useStore((s) => s.lutEpoch);
   const patch = useStore((s) => s.patch);
   const removePhoto = useStore((s) => s.removePhoto);
 
@@ -85,7 +86,7 @@ export function Preview() {
     } catch (err) {
       setRenderError(`Look konnte nicht erzeugt werden: ${describeError(err)}`);
     }
-  }, [lookId, engineReady, source.version]);
+  }, [lookId, engineReady, source.version, lutEpoch]);
 
   // Ein Frame pro Änderung: jede neue Abhängigkeit verwirft den noch nicht gezeichneten Frame davor.
   useEffect(() => {

@@ -74,24 +74,108 @@ export function targetSpan(a: number, b: number, srcLen: number, outLen: number)
   return [j0, Math.max(j0, j1)];
 }
 
-/** Rand in Quellpixeln, den der Box-Filter bei Verkleinerungsfaktor k braucht. */
+/**
+ * Rand in Quellpixeln, den eine Kachel braucht: Box-Filter (k/2) plus die Nachbarpixel
+ * der Schärfung (±1 Zielpixel = k Quellpixel) und bilineare Abgriffe.
+ */
 export function filterMargin(k: number): number {
-  return Math.ceil(Math.max(1, k) / 2) + 2;
+  return Math.ceil(Math.max(1, k) * 1.5) + 2;
 }
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 
+/** Kelvin, bei denen das Foto als neutral abgeglichen gilt (Tageslicht). */
+export const WB_REFERENCE_K = 5500;
 /**
- * Kanalfaktoren in linearem Licht: Belichtung (2^EV) × Weißabgleich.
- * Der Weißabgleich ist luminanzerhaltend (Rec.-709-Luminanz bleibt gleich).
+ * Blendenstufen je Schritt der Weißabgleich-Verschiebung (R bzw. B). Fujifilm nennt keine Größe;
+ * gegen In-Kamera-Rezepte derselben Aufnahme geprüft (scripts/abgleich-pipeline.mjs wb): passt mit
+ * Faktor 1,0–1,25, z. B. Kodachrome 64 → Gold 200 (+2 R) Kamera Δa* 2,3, Film Lab 2,1.
  */
-export function channelGains(p: Pick<LookParams, 'exposure' | 'temperature' | 'tint'>): [number, number, number] {
-  const t = p.temperature * 0.4; // Blendenstufen zwischen Rot und Blau
-  const m = p.tint * 0.3; // Blendenstufen Grün ↔ Magenta
-  const g = [2 ** (t + m / 2), 2 ** -m, 2 ** (-t + m / 2)];
-  const y = g[0] * LUMA[0] + g[1] * LUMA[1] + g[2] * LUMA[2];
-  const e = 2 ** p.exposure;
-  return [(g[0] / y) * e, (g[1] / y) * e, (g[2] / y) * e];
+export const WB_SHIFT_STOPS = 0.06;
+
+type Mat3 = number[]; // zeilenweise, 9 Werte
+
+const mul = (a: Mat3, b: Mat3): Mat3 =>
+  [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]));
+const apply = (m: Mat3, v: number[]) => [0, 1, 2].map((r) => m[r * 3] * v[0] + m[r * 3 + 1] * v[1] + m[r * 3 + 2] * v[2]);
+
+// Lineares sRGB ↔ XYZ (D65) und Bradford-Zapfenraum.
+const SRGB_TO_XYZ: Mat3 = [0.4124564, 0.3575761, 0.1804375, 0.2126729, 0.7151522, 0.072175, 0.0193339, 0.119192, 0.9503041];
+const XYZ_TO_SRGB: Mat3 = [3.2404542, -1.5371385, -0.4985314, -0.969266, 1.8760108, 0.041556, 0.0556434, -0.2040259, 1.0572252];
+const BRADFORD: Mat3 = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296];
+const BRADFORD_INV: Mat3 = [0.9869929, -0.1470543, 0.1599627, 0.4323053, 0.5183603, 0.0492912, -0.0085287, 0.0400428, 0.9684867];
+
+/** Farbort des Planck-Strahlers (Näherung nach Kim et al. 2002, 1667–25000 K) als XYZ mit Y = 1. */
+export function planckXYZ(kelvin: number): number[] {
+  const T = Math.min(25000, Math.max(1667, kelvin));
+  const x =
+    T <= 4000
+      ? -0.2661239e9 / T ** 3 - 0.2343589e6 / T ** 2 + 0.8776956e3 / T + 0.17991
+      : -3.0258469e9 / T ** 3 + 2.1070379e6 / T ** 2 + 0.2226347e3 / T + 0.24039;
+  const y =
+    T <= 2222
+      ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683
+      : T <= 4000
+        ? -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+        : 3.081758 * x ** 3 - 5.8733867 * x ** 2 + 3.75112997 * x - 0.37001483;
+  return [x / y, 1, (1 - x - y) / y];
+}
+
+/**
+ * Weißabgleich wie in der Kamera: Sie gleicht so ab, dass Licht von `kelvin` neutral wird.
+ * Das Foto war bei WB_REFERENCE_K neutral → Bradford-Anpassung von `kelvin` auf die Referenz.
+ * Höhere Kelvin = wärmer. Ergebnis zeilenweise, in linearem sRGB.
+ */
+function kelvinMatrix(kelvin: number): Mat3 {
+  const src = apply(BRADFORD, planckXYZ(kelvin));
+  const dst = apply(BRADFORD, planckXYZ(WB_REFERENCE_K));
+  const d: Mat3 = [dst[0] / src[0], 0, 0, 0, dst[1] / src[1], 0, 0, 0, dst[2] / src[2]];
+  return mul(XYZ_TO_SRGB, mul(BRADFORD_INV, mul(d, mul(BRADFORD, SRGB_TO_XYZ))));
+}
+
+/**
+ * Farbmatrix vor der LUT (lineares sRGB, zeilenweise): Belichtung × Weißabgleich (Kelvin + Verschiebung).
+ * Der Weißabgleich erhält die Luminanz von Weiß; Belichtung skaliert mit 2^EV.
+ */
+export function colorMatrix(p: Pick<LookParams, 'exposure' | 'wbKelvin' | 'wbShiftR' | 'wbShiftB'>): Mat3 {
+  let m: Mat3 = p.wbKelvin > 0 ? kelvinMatrix(p.wbKelvin) : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const shift = [2 ** (WB_SHIFT_STOPS * p.wbShiftR), 1, 2 ** (WB_SHIFT_STOPS * p.wbShiftB)];
+  m = m.map((v, i) => v * shift[Math.floor(i / 3)]);
+  const white = apply(m, [1, 1, 1]);
+  const y = white[0] * LUMA[0] + white[1] * LUMA[1] + white[2] * LUMA[2];
+  const e = 2 ** p.exposure / y;
+  return m.map((v) => v * e);
+}
+
+/** Zeilenweise 3×3 → spaltenweise für uniformMatrix3fv. */
+export function toColumnMajor(m: Mat3): Float32Array {
+  return new Float32Array([m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
+}
+
+/** Stärke der Lichterkompression für DR100/200/400 (siehe dynRange im Shader). */
+export function drStrength(dr: LookParams['dynamicRange']): number {
+  return dr === 400 ? 1 : dr === 200 ? 0.5 : 0;
+}
+
+/**
+ * Luminanz, die mit DR200/DR400 noch auf Weiß passt: Bei Plusbelichtung liegen die Lichter der
+ * Quelle bei bis zu 2^EV; DR200 fängt eine, DR400 zwei Blendenstufen davon auf.
+ */
+export function drWhite(p: Pick<LookParams, 'exposure' | 'dynamicRange'>): number {
+  return Math.min(2 ** Math.max(0, p.exposure), p.dynamicRange / 100);
+}
+
+/** Radius (σ) der Schärfung in Pixeln des Vollbilds. */
+export const SHARP_SIGMA = 0.7;
+
+/**
+ * Seitengewicht w des 3×3-Kerns [w, 1−2w, w]² der Schärfung bei `scale` Zielpixeln je Vollbildpixel.
+ * Ein diskreter Kern mit w = σ²/2 hat für kleine Frequenzen denselben Frequenzgang wie ein Gauß mit σ:
+ * In der verkleinerten Vorschau wirkt die Schärfung so ungefähr wie im verkleinerten Export.
+ */
+export function sharpKernelWeight(scale: number): number {
+  const s = SHARP_SIGMA * Math.min(1, scale);
+  return Math.min(0.5, s * s) / 2;
 }
 
 /** Ein Lichteinfall: Kante, Lage, Ausdehnung und Farbe, alles relativ zur kürzeren Bildseite. */
@@ -154,7 +238,11 @@ export function leakSpecs(seed: number): LeakSpec[] {
   return out;
 }
 
-/** Gitterpunkte des Korns pro kürzerer Bildseite (Korngröße 1 ≈ 1,8 px bei 24 MP). */
-export function grainLattice(grainSize: number): number {
-  return 2200 / Math.min(3, Math.max(0.5, grainSize));
+/**
+ * Gitterpunkte des Korns pro kürzerer Bildseite. „klein“: 2 Punkte je Pixel bei 24 MP, gemittelt → fast weißes
+ * Pixelrauschen wie Fujis Grain Effect (X-T30, 100 %: Autokorrelation bei 1 px ≈ 0); „groß“ ≈ 1,5 px wie bei
+ * X-T5/GFX (Large ≈ 1,5 × Small, docs/kamera-looks-referenz.md 2.1).
+ */
+export function grainLattice(size: LookParams['grainSize']): number {
+  return size === 'gross' ? 2700 : 8000;
 }

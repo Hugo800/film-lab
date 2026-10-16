@@ -7,6 +7,9 @@
 //
 // Einstiegspunkte (jeweils index.ts des Ordners):
 //   looks:  LOOKS: FilmLook[]; parseCube(text, title?): Lut3D; identityLut(size): Lut3D
+//           buildOfficialLuts(files: {name: string; data: Uint8Array}[], onProgress?): Promise<Map<string, Lut3D>>
+//             (offizielle Fujifilm-F-Log2-LUTs, vom Nutzer selbst geladen → sRGB-LUTs „Provia-relativ“,
+//              Schlüssel = FilmLook.officialKey; rechnet in einem Worker; nichts davon wird mitgeliefert)
 //   io:     loadFile(file: File): Promise<SourceImage>          (JPEG/PNG/HEIC/ARW, ARW per src/io/raw)
 //           encodeJpeg(rgba: Uint8Array, width, height, quality): Promise<Uint8Array>
 //           withMetadata(jpeg: Uint8Array, meta: SourceMetadata, size: {width, height}): Uint8Array
@@ -24,24 +27,59 @@ export interface Lut3D {
   title?: string;
 }
 
+/** Stufen wie im Kameramenü: 0 = Aus, 1 = Schwach, 2 = Stark. */
+export type Level = 0 | 1 | 2;
+
 /**
- * Einstellbare Parameter. Alle Effekte sind auflösungsunabhängig definiert
+ * Einstellbare Parameter. Aufbau und Wertebereiche wie die Bildeinstellungen einer
+ * Fujifilm-Kamera, damit sich Fuji-Rezepte (z. B. Fuji X Weekly) 1:1 eintragen lassen;
+ * dazu einige Extras, die keine Kamera hat. Alle Effekte sind auflösungsunabhängig
  * (relativ zur kürzeren Bildseite), damit Vorschau und Export gleich aussehen.
  */
 export interface LookParams {
-  /** Mischung Original ↔ LUT, 0..1. */
+  /** Mischung Original ↔ Look (nur die LUT), 0..1. */
   strength: number;
-  /** Belichtung in Blendenstufen, -2..2 (vor der LUT, in linearem Licht). */
+  /** Belichtungskorrektur in Blendenstufen, -2..2 (vor der LUT, in linearem Licht). */
   exposure: number;
-  /** Farbtemperatur, -1 (kühl) .. 1 (warm). 0 = neutral. Vor der LUT. */
-  temperature: number;
-  /** Tönung, -1 (grün) .. 1 (magenta). 0 = neutral. Vor der LUT. */
-  tint: number;
-  /** Kornstärke 0..1. */
-  grain: number;
-  /** Korngröße 0.5..3 (1 = Kleinbild-ISO-400-artig bei 24 MP). */
-  grainSize: number;
-  /** Halation (rötliches Leuchten um Lichter), 0..1. */
+
+  // --- Fujifilm-Bildeinstellungen ---
+  /**
+   * Weißabgleich wie im Rezept: 0 = „Auto“ (Foto bleibt, wie es ist), sonst Kelvin 2500..10000.
+   * Das Foto gilt als bei Tageslicht (5500 K) neutral abgeglichen; 6500 K wärmt also wie in der Kamera.
+   * Vor der LUT.
+   */
+  wbKelvin: number;
+  /** Weißabgleich-Verschiebung Rot (+) ↔ Cyan (−), -9..9, ganzzahlig. Vor der LUT. */
+  wbShiftR: number;
+  /** Weißabgleich-Verschiebung Blau (+) ↔ Gelb (−), -9..9, ganzzahlig. Vor der LUT. */
+  wbShiftB: number;
+  /** Dynamikbereich wie DR100/DR200/DR400: schützt Lichter (Kamera: unterbelichten + Kurve anheben). */
+  dynamicRange: 100 | 200 | 400;
+  /** Lichter-Ton, -2..4 in 0,5-Schritten (+ = härtere/hellere Lichter, − = weichere). */
+  highlightTone: number;
+  /** Schatten-Ton, -2..4 in 0,5-Schritten (+ = dunklere/härtere Schatten, − = weichere). */
+  shadowTone: number;
+  /** Farbe (Sättigung), -4..4, ganzzahlig. Bei SW-Looks ohne Wirkung. */
+  color: number;
+  /** Schärfe, -4..4, ganzzahlig. */
+  sharpness: number;
+  /** Klarheit (lokaler Mitteltonkontrast), -5..5, ganzzahlig. */
+  clarity: number;
+  /** Grain Effect: Aus/Schwach/Stark. */
+  grainEffect: Level;
+  /** Korngröße wie in der Kamera. */
+  grainSize: 'klein' | 'gross';
+  /** Color Chrome Effect: vertieft stark gesättigte Farben. */
+  colorChrome: Level;
+  /** Color Chrome FX Blau: dasselbe nur für Blautöne. */
+  colorChromeBlue: Level;
+  /** Monochrom-Tönung warm (+) ↔ kalt (−), -18..18. Nur bei SW-Looks. */
+  monoWarmCool: number;
+  /** Monochrom-Tönung Magenta (+) ↔ Grün (−), -18..18. Nur bei SW-Looks. */
+  monoMagentaGreen: number;
+
+  // --- Extras (keine Kamera-Einstellung) ---
+  /** Halation (rötliches Leuchten um Lichter, z. B. CineStill), 0..1. */
   halation: number;
   /** Vignette 0..1. */
   vignette: number;
@@ -51,16 +89,30 @@ export interface LookParams {
   leakSeed: number;
 }
 
-export type LookCategory = 'farbe' | 'diafilm' | 'kino' | 'schwarzweiss' | 'eigene';
+/** Gruppen in der Look-Auswahl. 'kodak' = Kodak-Filme als Fuji-Rezepte. */
+export type LookCategory = 'fujifilm' | 'leica' | 'kodak' | 'eigene';
 
-/** Ein Film-Look: Farbcharakter als LUT plus Voreinstellungen der Effekte. */
+/** Ein Look: Farbcharakter als LUT plus Voreinstellungen der Bildeinstellungen. */
 export interface FilmLook {
   id: string;
-  /** Anzeigename, z. B. „Portra 400“-artig, aber eigener Name (keine Markennamen als Produktbehauptung). */
+  /** Anzeigename wie in der Kamera bzw. wie der Film, z. B. „Classic Chrome“, „Leica Chrome“, „Portra 400“. */
   name: string;
-  /** Kurze Beschreibung auf Deutsch, 1 Satz. */
+  /** Kurze Beschreibung auf Deutsch, 1 Satz. Bei Rezepten mit Quelle (z. B. „Rezept: Fuji X Weekly“). */
   description: string;
   category: LookCategory;
+  /** SW-Look: Farbe/Color Chrome ohne Wirkung, Monochrom-Tönung sichtbar. */
+  monochrome?: boolean;
+  /**
+   * Rezept auf Basis eines anderen Looks (id). Dann liefert buildLut() die LUT der Basis,
+   * und der Unterschied steckt in defaults. Die UI nutzt die Basis auch, um ggf. die
+   * Fujifilm-Original-LUT einzusetzen.
+   */
+  baseLookId?: string;
+  /**
+   * Schlüssel der offiziellen Fujifilm-LUT (Dateiname ohne Endung im Paket, z. B. „FLog2_to_CLASSIC_CHROME“),
+   * falls es für diese Simulation eine gibt. Siehe buildOfficialLuts in src/looks.
+   */
+  officialKey?: string;
   /** Deterministisch. Ergebnis darf vom Aufrufer zwischengespeichert werden. */
   buildLut(): Lut3D;
   /** Voreinstellungen beim Wählen des Looks (fehlende Felder = DEFAULT_PARAMS). */
@@ -70,10 +122,21 @@ export interface FilmLook {
 export const DEFAULT_PARAMS: LookParams = {
   strength: 1,
   exposure: 0,
-  temperature: 0,
-  tint: 0,
-  grain: 0,
-  grainSize: 1,
+  wbKelvin: 0,
+  wbShiftR: 0,
+  wbShiftB: 0,
+  dynamicRange: 100,
+  highlightTone: 0,
+  shadowTone: 0,
+  color: 0,
+  sharpness: 0,
+  clarity: 0,
+  grainEffect: 0,
+  grainSize: 'klein',
+  colorChrome: 0,
+  colorChromeBlue: 0,
+  monoWarmCool: 0,
+  monoMagentaGreen: 0,
   halation: 0,
   vignette: 0,
   leak: 0,

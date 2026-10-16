@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { type LookParams, type Lut3D } from '../types';
-import { defaultsFor, NONE_ID, registerCustomLut, unregisterCustomLut } from './lookRegistry';
-import { deleteStoredLut, savePresets, saveStoredLut, type UserPreset } from './storage';
-import { builtinEntries } from './lookRegistry';
+import { builtinEntries, defaultsFor, NONE_ID, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
+import { clearOfficialLuts, deleteStoredLut, savePresets, saveStoredLut, saveUseOfficial, type UserPreset } from './storage';
 
 export interface PhotoSettings {
   lookId: string;
@@ -100,6 +99,11 @@ interface State {
   source: SourceState;
   customLuts: CustomLut[];
   presets: UserPreset[];
+  /** Schlüssel der geladenen Fujifilm-Original-LUTs. */
+  officialKeys: string[];
+  useOfficial: boolean;
+  /** Zählt hoch, wenn sich die LUTs hinter den Looks ändern (Originale an/aus/neu): Vorschau und Kacheln rechnen neu. */
+  lutEpoch: number;
   /** Look-Kacheln: Schlüssel `${photoId}|${entryId}` → Object-URL ('' = fehlgeschlagen). */
   lookThumbs: Record<string, string>;
   notice: Notice | null;
@@ -112,6 +116,8 @@ interface State {
   setPhotoThumb(id: string, url: string): void;
   setLook(lookId: string): void;
   applyPreset(preset: UserPreset): void;
+  /** Rezept aus Text: Look (falls erkannt) und Parameter auf das aktive Foto. */
+  applyRecipe(lookId: string | null, params: Partial<LookParams>): void;
   setParam<K extends keyof LookParams>(key: K, value: LookParams[K]): void;
   resetParam(key: keyof LookParams): void;
   resetAll(): void;
@@ -123,6 +129,9 @@ interface State {
   addPreset(name: string): void;
   removePreset(id: string): void;
   setPresets(list: UserPreset[]): void;
+  setOfficialLuts(luts: Map<string, Lut3D>, use: boolean): void;
+  setUseOfficial(use: boolean): void;
+  removeOfficialLuts(): void;
   setLookThumb(key: string, url: string): void;
   notify(text: string, kind?: Notice['kind']): void;
   dismissNotice(): void;
@@ -149,6 +158,9 @@ export const useStore = create<State>()((set, get) => ({
   source: emptySource,
   customLuts: [],
   presets: [],
+  officialKeys: [],
+  useOfficial: false,
+  lutEpoch: 0,
   lookThumbs: {},
   notice: null,
   export: EXPORT_IDLE,
@@ -211,6 +223,16 @@ export const useStore = create<State>()((set, get) => ({
 
   applyPreset(preset) {
     set((s) => updateActive(s, () => ({ lookId: preset.lookId, params: { ...preset.params } })));
+  },
+
+  applyRecipe(lookId, params) {
+    set((s) =>
+      updateActive(s, (cur) => {
+        const id = lookId ?? cur.lookId;
+        // Was das Rezept nicht nennt, bleibt beim Standard des Looks.
+        return { lookId: id, params: { ...defaultsFor(id), ...params, leakSeed: cur.params.leakSeed } };
+      }),
+    );
   },
 
   setParam(key, value) {
@@ -296,6 +318,31 @@ export const useStore = create<State>()((set, get) => ({
 
   setPresets: (presets) => set({ presets }),
 
+  setOfficialLuts(luts, use) {
+    setOfficialLuts(luts);
+    const on = use && luts.size > 0;
+    setOfficialOn(on);
+    set({ officialKeys: [...luts.keys()], useOfficial: on });
+    refreshThumbs();
+  },
+
+  setUseOfficial(use) {
+    const on = use && get().officialKeys.length > 0;
+    setOfficialOn(on);
+    saveUseOfficial(on);
+    set({ useOfficial: on });
+    refreshThumbs();
+  },
+
+  removeOfficialLuts() {
+    setOfficialLuts(new Map());
+    setOfficialOn(false);
+    saveUseOfficial(false);
+    void clearOfficialLuts();
+    set({ officialKeys: [], useOfficial: false });
+    refreshThumbs();
+  },
+
   setLookThumb(key, url) {
     const photoId = key.split('|')[0];
     if (!get().photos.some((p) => p.id === photoId)) {
@@ -313,6 +360,13 @@ export const useStore = create<State>()((set, get) => ({
 
   patch: (partial) => set(partial),
 }));
+
+/** Kacheln verwerfen und neu rechnen lassen, wenn sich LUTs hinter den Looks ändern. */
+function refreshThumbs() {
+  const { lookThumbs, lutEpoch } = useStore.getState();
+  for (const url of Object.values(lookThumbs)) if (url) URL.revokeObjectURL(url);
+  useStore.setState({ lookThumbs: {}, lutEpoch: lutEpoch + 1 });
+}
 
 export function activePhoto(s: Pick<State, 'photos' | 'activeId'>): Photo | undefined {
   return s.photos.find((p) => p.id === s.activeId);

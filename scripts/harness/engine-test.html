@@ -14,7 +14,15 @@
 <script type="module">
   // Prüfseite für scripts/engine-test.mjs. Rechnet im Browser, liefert nur Zahlen/kleine PNGs zurück.
   import { createEngine } from '/src/engine/index.ts';
-  import { identityLut, LOOKS } from '/src/looks/index.ts';
+  // Looks dynamisch: Ein gerade umgebautes looks-Modul soll die Engine-Prüfung nicht blockieren.
+  let LOOKS = [];
+  try { ({ LOOKS } = await import('/src/looks/index.ts')); } catch (e) { console.warn('looks nicht ladbar:', String(e)); }
+  function identityLut(n) {
+    const data = new Float32Array(n * n * n * 3);
+    for (let b = 0; b < n; b++) for (let g = 0; g < n; g++) for (let r = 0; r < n; r++)
+      data.set([r / (n - 1), g / (n - 1), b / (n - 1)], (r + g * n + b * n * n) * 3);
+    return { size: n, data };
+  }
   import { DEFAULT_PARAMS } from '/src/types.ts';
   import { encodeJpeg, loadFile } from '/src/io/index.ts';
 
@@ -135,6 +143,111 @@
   }
 
   const P = (o) => ({ ...DEFAULT_PARAMS, ...o });
+
+  // Synthetische Quelle: waagrechter Grauverlauf 0..255 (für Kornmessungen ohne Bildinhalt).
+  function rampSource(w, h) {
+    const data = new Uint8Array(w * h * 4);
+    for (let x = 0; x < w; x++) {
+      const v = Math.round((x / (w - 1)) * 255);
+      for (let y = 0; y < h; y++) data.set([v, v, v, 255], (y * w + x) * 4);
+    }
+    return { id: 'ramp' + w, fileName: 'ramp', width: w, height: h, colorSpace: 'srgb', pixels: { data, width: w, height: h }, meta: {}, isRaw: false };
+  }
+
+  function gaussBlur(a, w, h, s) {
+    const r = Math.ceil(3 * s), k = [];
+    let ks = 0;
+    for (let i = -r; i <= r; i++) { const v = Math.exp(-i * i / (2 * s * s)); k.push(v); ks += v; }
+    const t = new Float32Array(w * h), o = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += k[i + r] * a[y * w + Math.min(w - 1, Math.max(0, x + i))];
+      t[y * w + x] = acc / ks;
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += k[i + r] * t[Math.min(h - 1, Math.max(0, y + i)) * w + x];
+      o[y * w + x] = acc / ks;
+    }
+    return o;
+  }
+
+  // Kornmaß wie für die Referenzbilder: Luma minus Gauß (σ 3 px), σ je Helligkeitsklasse (8 × 32 Stufen),
+  // Autokorrelation bei 1 px Abstand, Farbanteil.
+  function grainStats(img, x0, y0, w, h) {
+    const L = new Float32Array(w * h), ch = [0, 1, 2].map(() => new Float32Array(w * h));
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = ((y0 + y) * img.width + x0 + x) * 4, o = y * w + x;
+      for (let c = 0; c < 3; c++) ch[c][o] = img.data[i + c];
+      L[o] = 0.2126 * ch[0][o] + 0.7152 * ch[1][o] + 0.0722 * ch[2][o];
+    }
+    const lb = gaussBlur(L, w, h, 3);
+    const hpc = ch.map((a) => { const b = gaussBlur(a, w, h, 3); return a.map((v, i) => v - b[i]); });
+    const bins = Array.from({ length: 8 }, () => [0, 0]);
+    let c0 = 0, c1 = 0, chroma = 0, n = 0;
+    for (let y = 8; y < h - 8; y++) for (let x = 8; x < w - 9; x++) {
+      const i = y * w + x, d = L[i] - lb[i], d1 = L[i + 1] - lb[i + 1];
+      const b = bins[Math.min(7, Math.floor(lb[i] / 32))];
+      b[0] += d * d; b[1]++;
+      c0 += d * d; c1 += d * d1; n++;
+      const m = (hpc[0][i] + hpc[1][i] + hpc[2][i]) / 3;
+      chroma += ((hpc[0][i] - m) ** 2 + (hpc[1][i] - m) ** 2 + (hpc[2][i] - m) ** 2) / 3;
+    }
+    return { sigma: bins.map(([s2, k]) => (k > 100 ? Math.sqrt(s2 / k) : null)), ak1: c1 / c0, colorRatio: Math.sqrt(chroma / c0) };
+  }
+
+  const lin8 = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  function oklab(r, g, b) {
+    r = lin8(r); g = lin8(g); b = lin8(b);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  }
+  // Mittlerer OKLab-Abstand (×100) zweier gleich großer RGBA-Bilder, optional nur Pixel mit Chroma ≥ minC in `a`.
+  function dOk(a, b, minC = 0) {
+    let s = 0, n = 0, dl = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const p = oklab(a[i], a[i + 1], a[i + 2]), q = oklab(b[i], b[i + 1], b[i + 2]);
+      if (Math.hypot(p[1], p[2]) < minC) continue;
+      s += Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); dl += q[0] - p[0]; n++;
+    }
+    return { dE: (100 * s) / n, dL: (100 * dl) / n, n };
+  }
+
+  async function loadRgba(path) {
+    const bmp = await createImageBitmap(await (await fetch(path)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext('2d');
+    g.drawImage(bmp, 0, 0);
+    return { data: new Uint8Array(g.getImageData(0, 0, c.width, c.height).data.buffer), width: c.width, height: c.height };
+  }
+
+  // Bilder nebeneinander mit Beschriftung (oben), als PNG.
+  async function stripPng(images, labels) {
+    const gap = 6, top = 26;
+    const W = images.reduce((s, im) => s + im.width + gap, -gap), H = Math.max(...images.map((im) => im.height)) + top;
+    const c = new OffscreenCanvas(W, H), g = c.getContext('2d');
+    g.fillStyle = '#202022'; g.fillRect(0, 0, W, H);
+    g.font = '16px sans-serif'; g.fillStyle = '#eee';
+    let x = 0;
+    images.forEach((im, k) => {
+      g.putImageData(new ImageData(new Uint8ClampedArray(im.data.buffer, im.data.byteOffset, im.data.length).slice(), im.width, im.height), x, top);
+      g.fillText(labels[k], x + 6, 19);
+      x += im.width + gap;
+    });
+    const id = g.getImageData(0, 0, W, H);
+    return png(new Uint8Array(id.data.buffer), W, H);
+  }
+
+  function cropImg(img, x0, y0, w, h, zoom = 1) {
+    const out = new Uint8Array(w * zoom * h * zoom * 4);
+    for (let y = 0; y < h * zoom; y++) for (let x = 0; x < w * zoom; x++) {
+      const i = ((y0 + Math.floor(y / zoom)) * img.width + x0 + Math.floor(x / zoom)) * 4;
+      out.set(img.data.subarray(i, i + 4), (y * w * zoom + x) * 4);
+    }
+    return { data: out, width: w * zoom, height: h * zoom };
+  }
   const look = (id) => (id === 'identity' ? identityLut(33) : id ? (LOOKS.find((l) => l.id === id) ?? LOOKS[0])?.buildLut() ?? null : null);
 
   window.T = {
@@ -251,7 +364,7 @@
     async abort(name) {
       const src = await load(name);
       const ac = new AbortController();
-      const p = engine.exportPixels(src, null, P({ grain: 0.5 }), { signal: ac.signal, tileSize: 512, onProgress: (f) => { if (f > 0.2) ac.abort(); } });
+      const p = engine.exportPixels(src, null, P({ grainEffect: 2 }), { signal: ac.signal, tileSize: 512, onProgress: (f) => { if (f > 0.2) ac.abort(); } });
       try { await p; return 'nicht abgebrochen'; } catch (e) { return e.name; }
     },
 
@@ -320,6 +433,53 @@
       const after = readCanvas();
       const thumb = await engine.renderThumbnail(null, P(params), 100);
       return { ...diff(before.data, after.data), thumb: [thumb.width, thumb.height] };
+    },
+
+    // Stufen eines Effekts nebeneinander: ganzes Bild (maxEdge) oder 100-%-Ausschnitt (crop = [rx, ry, w, h, zoom]).
+    async strip(name, variants, lutId, maxEdge, crop) {
+      const src = name === 'ramp' ? rampSource(6000, 4000) : await load(name);
+      const lut = look(lutId);
+      const imgs = [];
+      for (const v of variants) {
+        const img = await engine.exportPixels(src, v.lut === undefined ? lut : look(v.lut), P(v.params), crop ? {} : { maxEdge });
+        if (crop) {
+          const [rx, ry, w, h, z] = crop;
+          imgs.push(cropImg(img, Math.round(rx * (img.width - w)), Math.round(ry * (img.height - h)), w, h, z ?? 1));
+        } else imgs.push(img);
+      }
+      return { png: await stripPng(imgs, variants.map((v) => v.label)) };
+    },
+
+    // Kornmessung auf dem Grauverlauf in voller Auflösung (6000×4000) und in der Vorschaugröße.
+    async grainMeasure(params) {
+      const src = rampSource(6000, 4000);
+      const full = await engine.exportPixels(src, null, P(params), {});
+      const small = await engine.exportPixels(src, null, P(params), { maxEdge: 2560 });
+      return { full: grainStats(full, 0, 1800, 6000, 240), preview: grainStats(small, 0, 760, 2560, 120) };
+    },
+
+    // Messung an einem Referenzbild (Pfad unter /testbilder/).
+    async refGrain(path) {
+      const img = await loadRgba('/testbilder/' + path);
+      return grainStats(img, 0, 0, img.width, img.height);
+    },
+
+    // Color Chrome: Referenz „aus“ mit unserer Engine bearbeiten und mit „stark“ vergleichen.
+    async colorChrome(off, on, params) {
+      const a = await loadRgba('/testbilder/' + off), b = await loadRgba('/testbilder/' + on);
+      const src = { id: off, fileName: off, width: a.width, height: a.height, colorSpace: 'srgb', pixels: a, meta: {}, isRaw: false };
+      const ours = await engine.exportPixels(src, null, P(params), {});
+      return {
+        refOffVsOn: dOk(a.data, b.data), oursVsOn: dOk(ours.data, b.data),
+        satOffVsOn: dOk(a.data, b.data, 0.08), satOursVsOn: dOk(ours.data, b.data, 0.08), satOffVsOurs: dOk(a.data, ours.data, 0.08),
+        // 8× verkleinert: Wind/Versatz zwischen den Aufnahmen fällt heraus.
+        small: (() => {
+          const w = Math.floor(a.width / 8), h = Math.floor(a.height / 8), d = (im) => boxDown(im, w, h);
+          const [sa, sb, so] = [d(a), d(b), d(ours)];
+          return { offVsOn: dOk(sa, sb), oursVsOn: dOk(so, sb), satOffVsOn: dOk(sa, sb, 0.08), satOursVsOn: dOk(so, sb, 0.08) };
+        })(),
+        png: await stripPng([a, ours, b].map((im) => cropImg(im, 0, 0, im.width, im.height)), ['Referenz aus', 'Film Lab', 'Referenz stark']),
+      };
     },
 
     dispose() {

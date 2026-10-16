@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Leica/Kodak-Kontaktbogen</title></head>
+<body>
+<canvas id="c" width="64" height="64"></canvas>
+<script type="module">
+  // Prüfseite für scripts/looks-leica-kodak-sheet.mjs: Looks mit ihren Voreinstellungen über die echte Engine.
+  import { createEngine } from '/src/engine/index.ts';
+  import { loadFile } from '/src/io/index.ts';
+  import { LOOKS } from '/src/looks/index.ts';
+  import { DEFAULT_PARAMS } from '/src/types.ts';
+
+  const engine = createEngine(document.getElementById('c'));
+  const luts = new Map();
+  const lutOf = (look) => luts.get(look.id) ?? luts.set(look.id, look.buildLut()).get(look.id);
+
+  async function source(name) {
+    const blob = await (await fetch('/testbilder/' + name)).blob();
+    return loadFile(new File([blob], name, { type: 'image/jpeg' }));
+  }
+
+  /** Rendert Original + Looks (ids) als Raster; edge = lange Kante je Kachel. Liefert PNG als Data-URL. */
+  window.sheet = async (name, ids, edge, cols, crop) => {
+    const src = await source(name);
+    engine.setSource(src);
+    await engine.ready();
+    const tiles = [];
+    for (const id of [null, ...ids]) {
+      const look = id && LOOKS.find((l) => l.id === id);
+      const params = { ...DEFAULT_PARAMS, ...(look?.defaults ?? {}) };
+      const img = await engine.exportPixels(src, look ? lutOf(look) : null, params, { maxEdge: edge });
+      tiles.push({ name: look ? look.name : 'Original', img });
+    }
+    const label = 26;
+    const w = crop ? crop[2] : tiles[0].img.width, h = crop ? crop[3] : tiles[0].img.height;
+    const rows = Math.ceil(tiles.length / cols);
+    const c = new OffscreenCanvas(cols * w, rows * (h + label)), g = c.getContext('2d');
+    g.fillStyle = '#1e1e1e'; g.fillRect(0, 0, c.width, c.height);
+    g.font = '18px sans-serif'; g.textBaseline = 'middle'; g.fillStyle = '#eee';
+    tiles.forEach((t, i) => {
+      const x = (i % cols) * w, y = Math.floor(i / cols) * (h + label);
+      g.fillText(t.name, x + 8, y + label / 2);
+      const id = new ImageData(new Uint8ClampedArray(t.img.data.buffer, t.img.data.byteOffset, t.img.data.length), t.img.width, t.img.height);
+      g.putImageData(id, x - (crop ? crop[0] : 0), y + label - (crop ? crop[1] : 0), crop ? crop[0] : 0, crop ? crop[1] : 0, w, h);
+    });
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+  };
+  window.ids = (cat) => LOOKS.filter((l) => l.category === cat).map((l) => l.id);
+  window.ready = true;
+</script>
+</body>
+</html>

@@ -2,31 +2,52 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../types';
 import { LOOKS } from './index';
 
-const BRANDS = /kodak|fuji|ilford|cinestill|portra|ektar|velvia|provia|superia|eterna|acros|tri-?x|hp5/i;
+const MENU = [
+  'Provia/Standard', 'Velvia/Vivid', 'Astia/Soft', 'Classic Chrome', 'Reala Ace', 'Pro Neg. Hi', 'Pro Neg. Std', 'Classic Neg.',
+  'Nostalgic Neg.', 'Eterna/Cinema', 'Eterna Bleach Bypass', 'Acros', 'Acros + Ye', 'Acros + R', 'Acros + G',
+  'Monochrom', 'Monochrom + Ye', 'Monochrom + R', 'Monochrom + G', 'Sepia',
+];
+
+const FUJI = LOOKS.filter((l) => l.category === 'fujifilm');
 
 describe('LOOKS', () => {
-  it('hat 12–14 Looks mit eindeutigen IDs und Namen ohne Markennamen', () => {
-    expect(LOOKS.length).toBeGreaterThanOrEqual(12);
-    expect(LOOKS.length).toBeLessThanOrEqual(14);
+  it('enthält die Fujifilm-Simulationen in Menü-Reihenfolge mit eindeutigen IDs', () => {
+    expect(FUJI.map((l) => l.name)).toEqual(MENU);
     expect(new Set(LOOKS.map((l) => l.id)).size).toBe(LOOKS.length);
-    for (const l of LOOKS) {
-      expect(l.name).not.toMatch(BRANDS);
+    for (const l of FUJI) {
       expect(l.description.length).toBeGreaterThan(20);
+      expect(!!l.monochrome).toBe(/Acros|Monochrom|Sepia/.test(l.name));
     }
-    for (const cat of ['farbe', 'diafilm', 'kino', 'schwarzweiss']) expect(LOOKS.some((l) => l.category === cat)).toBe(true);
   });
 
-  it('hat Voreinstellungen im gültigen Bereich, Light Leaks aus', () => {
-    for (const l of LOOKS) {
+  it('ordnet die Gruppen Fujifilm, Leica, Kodak nacheinander an', () => {
+    const order = LOOKS.map((l) => l.category).filter((c, i, a) => c !== a[i - 1]);
+    expect(order).toEqual(['fujifilm', 'leica', 'kodak']);
+  });
+
+  it('nennt die offiziellen LUT-Schlüssel genau für die Simulationen aus Fujifilms Paket', () => {
+    const keys = LOOKS.filter((l) => l.officialKey).map((l) => l.officialKey);
+    expect(keys.sort()).toEqual(['ACROS', 'ASTIA', 'CLASSIC-CHROME', 'CLASSIC-NEG', 'ETERNA', 'ETERNA-BB', 'PRO-NEG-STD', 'PROVIA', 'REALA-ACE', 'VELVIA']);
+  });
+
+  it('startet mit den Werkseinstellungen der Kamera (nur bekannte Felder, keine Extras)', () => {
+    for (const l of LOOKS.filter((x) => x.category !== 'kodak')) {
+      for (const k of Object.keys(l.defaults)) expect(k in DEFAULT_PARAMS).toBe(true);
       const p = { ...DEFAULT_PARAMS, ...l.defaults };
-      expect(p.leak).toBe(0);
-      for (const k of ['grain', 'halation', 'vignette', 'strength'] as const) {
-        expect(p[k]).toBeGreaterThanOrEqual(0);
-        expect(p[k]).toBeLessThanOrEqual(1);
-      }
-      expect(p.grainSize).toBeGreaterThanOrEqual(0.5);
-      expect(p.grainSize).toBeLessThanOrEqual(3);
+      expect([p.leak, p.halation, p.vignette, p.grainEffect]).toEqual([0, 0, 0, 0]);
     }
+  });
+
+  it('Provia/Standard lässt das Foto unverändert', () => {
+    const lut = LOOKS[0].buildLut(), n = lut.size;
+    let worst = 0;
+    for (let b = 0; b < n; b++)
+      for (let g = 0; g < n; g++)
+        for (let r = 0; r < n; r++) {
+          const i = (r + g * n + b * n * n) * 3;
+          worst = Math.max(worst, Math.abs(lut.data[i] - r / (n - 1)), Math.abs(lut.data[i + 1] - g / (n - 1)), Math.abs(lut.data[i + 2] - b / (n - 1)));
+        }
+    expect(worst).toBeLessThan(0.003);
   });
 });
 
@@ -47,7 +68,8 @@ function cpuMs(fn: () => void): number {
 // Einmal vorwärmen, damit die Zeitmessung nicht den JIT-Start misst.
 LOOKS[0].buildLut();
 
-describe.each(LOOKS.map((l) => [l.name, l] as const))('LUT „%s“', (_name, look) => {
+// Kodak-Rezepte liefern die LUT ihrer Basis (eigene Prüfungen in kodak.test.ts).
+describe.each(LOOKS.filter((l) => !l.baseLookId).map((l) => [l.name, l] as const))('LUT „%s“', (_name, look) => {
   const lut = look.buildLut();
   const n = lut.size;
   const at = (r: number, g: number, b: number, c: number) => lut.data[(r + g * n + b * n * n) * 3 + c];
@@ -78,12 +100,21 @@ describe.each(LOOKS.map((l) => [l.name, l] as const))('LUT „%s“', (_name, lo
     expect(worst).toBeLessThan(0.2);
   });
 
-  if (look.category === 'schwarzweiss')
+  if (look.monochrome && !['sepia', 'leica-sepia', 'leica-blue', 'leica-selenium'].includes(look.id))
     it('liefert R = G = B', () => {
       let differ = 0;
       for (let i = 0; i < lut.data.length; i += 3)
         if (lut.data[i + 1] !== lut.data[i] || lut.data[i + 2] !== lut.data[i]) differ++;
       expect(differ).toBe(0);
+    });
+
+  if (look.id === 'sepia')
+    it('tönt gleichmäßig braun (R ≥ G ≥ B, Schwarz und Weiß neutral)', () => {
+      let bad = 0;
+      for (let i = 0; i < lut.data.length; i += 3) if (!(lut.data[i] >= lut.data[i + 1] && lut.data[i + 1] >= lut.data[i + 2])) bad++;
+      expect(bad).toBe(0);
+      expect(at(0, 0, 0, 0)).toBeLessThan(0.01);
+      expect(at(n - 1, n - 1, n - 1, 2)).toBeGreaterThan(0.98);
     });
 
   it('ist deterministisch und schnell gebaut (< 50 ms CPU-Zeit)', () => {
