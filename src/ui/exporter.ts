@@ -30,7 +30,6 @@ export function openExport() {
   // „Rückgängig“ im Toast läge über dem Dialog und schlösse die Quelle, die der Export gerade liest.
   useStore.getState().dismissNotice();
   useStore.setState({ export: { ...EXPORT_IDLE, phase: 'wahl', scope: photos.length > 1 ? 'alle' : 'aktuell' } });
-  if (photos.length === 1) void startExport('aktuell');
 }
 
 export function closeExport() {
@@ -48,6 +47,27 @@ export function setScope(scope: ExportScope) {
   setExport({ scope });
 }
 
+/** Hält den Bildschirm während des Exports an (iOS ab 16.4); ohne Unterstützung oder bei Fehler passiert still nichts. */
+function keepAwake(): () => void {
+  let released = false;
+  let lock: WakeLockSentinel | null = null;
+  try {
+    navigator.wakeLock?.request('screen').then(
+      (l) => {
+        if (released) l.release().catch(() => {});
+        else lock = l;
+      },
+      () => {},
+    );
+  } catch {
+    // Kein Wachhalten – der Export läuft trotzdem.
+  }
+  return () => {
+    released = true;
+    lock?.release().catch(() => {});
+  };
+}
+
 export async function startExport(scope: ExportScope) {
   const state = useStore.getState();
   const list = scope === 'alle' ? state.photos : state.photos.filter((p) => p.id === state.activeId);
@@ -60,6 +80,7 @@ export async function startExport(scope: ExportScope) {
   const { signal } = abort;
   const errors: string[] = [];
   const pageTitle = document.title;
+  const releaseAwake = keepAwake();
   setExport({ phase: 'laeuft', scope, fraction: 0, index: 0, total: list.length, errors: [], cancelled: false, done: [] });
 
   for (let i = 0; i < list.length; i++) {
@@ -96,6 +117,7 @@ export async function startExport(scope: ExportScope) {
       errors.push(`ZIP: ${describeError(err)}`);
     }
   }
+  releaseAwake();
   setExport({
     phase: 'fertig',
     fraction: signal.aborted ? useStore.getState().export.fraction : 1,
@@ -103,8 +125,6 @@ export async function startExport(scope: ExportScope) {
     errors,
     done: results.map((r) => ({ name: r.name, bytes: r.blob.size })),
   });
-  // Am PC reicht der Download; am Handy braucht share() eine frische Geste (Knopf im Dialog).
-  if (!signal.aborted && results.length > 0 && !isTouchPrimary()) download();
 }
 
 export function isTouchPrimary(): boolean {

@@ -29,11 +29,11 @@ function tileName(e: Pick<LookEntry, 'name' | 'category'>): string {
       .replace(/^Leica /, '')
       .replace('Monochrom High Contrast', 'Mono HC')
       .replace(/^Monochrom /, 'Mono ');
-  // Das unterscheidende Ende muss in die Kachel: „K-chrome 64“ neben „K-chrome 25“, „VR 200“, „E100“.
+  // Das unterscheidende Ende muss in die Kachel: „K-chr. 64“ neben „K-chr. 25“, „VR 200“, „E100“.
   if (e.category === 'kodak')
     return e.name
       .replace(/^Kodak /, '')
-      .replace(/^Kodachrome /, 'K-chrome ')
+      .replace(/^Kodachrome /, 'K-chr. ')
       .replace(/^(?:Kodacolor|Ektachrome) /, '');
   return e.name;
 }

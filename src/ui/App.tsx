@@ -20,6 +20,7 @@ async function dropFiles(files: File[]) {
   const rest = files.filter((f) => !zips.includes(f) && !cubes.includes(f));
   if (rest.length > 0) addPhotos(rest);
   if (zips.length > 0) {
+    notify('Fujifilm-LUTs werden geladen …');
     try {
       const { luts, stored } = await importOfficialLuts(zips, () => {});
       useStore.getState().setOfficialLuts(luts, true);
@@ -35,6 +36,7 @@ async function dropFiles(files: File[]) {
       const lut = parseCube(await file.text(), title);
       const entry = useStore.getState().addCustomLut(lut.title || title, lut);
       useStore.getState().setLook(entry.id);
+      notify(`LUT „${entry.name}“ geladen`);
     } catch (err) {
       notify(`Die LUT „${file.name}“ konnte nicht gelesen werden: ${describeError(err)}`, 'fehler');
     }

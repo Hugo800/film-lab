@@ -1,7 +1,7 @@
 // Ende-zu-Ende-Test der gebauten App: npm run test:browser
 // Baut nach test-output/e2e-build, liefert statisch aus (Port TEST_PORT, Vorgabe 5190) und bedient die
 // Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): 2 JPEGs + 1 ARW laden,
-// Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und als ZIP. Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
+// Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und alle (PC: ZIP, iPhone-Kennung: share() mit Einzeldateien). Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
 // Der Server setzt die Header aus deploy/security-headers.conf; jeder CSP-Verstoß (Seite oder Worker) macht den Test rot.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -131,6 +131,27 @@ async function run(mode, viewport) {
   page.on('request', (r) => requested.push(r.url()));
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
+  if (touch) {
+    // iPhone-Kennung + Teilen: iOS bekommt dann genau einen Export-Knopf. Der Mock merkt sich die Aufrufe und legt
+    // die übergebenen Dateien als Download ab, damit sie wie am PC geprüft werden können.
+    await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1');
+    await page.evaluateOnNewDocument(() => {
+      window.__shared = [];
+      navigator.canShare = (d) => !!d?.files?.length;
+      navigator.share = async (d) => {
+        window.__shared.push(d.files.map((f) => f.name));
+        for (const f of d.files) {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(f);
+          a.download = f.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      };
+    });
+  }
   // CSP-Verstöße: im Dokument per Ereignis, in Workern (LibRaw, Export) über deren Protokoll.
   const csp = [];
   const isCsp = (t) => /Content Security Policy/i.test(t);
@@ -236,8 +257,14 @@ async function run(mode, viewport) {
     }
     return null;
   };
-  const exportRun = async (scope, name) => {
+  /** Namen der Aktionsknöpfe in der Fertig-Ansicht (ohne „Schließen“). */
+  const exportActions = () =>
+    page.$$eval('[role=dialog] button', (bs) => bs.map((b) => b.textContent.trim()).filter((t) => /herunterladen|teilen|sichern/i.test(t)));
+  /** Export von `scope`; liefert die erwarteten Dateien (`names`) als Buffer oder null. Erst rechnen, dann Knopf: vorher darf nichts heruntergeladen sein. */
+  const exportRun = async (scope, names) => {
     const t = Date.now();
+    for (const n of names) rmSync(join(DL, n), { force: true });
+    if (touch) await page.evaluate(() => (window.__shared = []));
     await press(`b.textContent.includes('Exportieren') && !!b.closest('header')`);
     if (!(await waitFor(() => !!document.querySelector('[role=dialog] input[name=umfang]'), 30_000))) throw new Error('Export-Dialog fehlt');
     await press(`b.name === 'umfang' && b.closest('label').textContent.includes(a)`, scope === 'alle' ? 'Alle' : 'Dieses Foto');
@@ -246,12 +273,23 @@ async function run(mode, viewport) {
     const done = await waitFor(() => /^Export (fertig|fehlgeschlagen|abgebrochen)/.test(document.querySelector('[role=dialog] h2')?.textContent ?? ''), 600_000);
     const text = await dialogText();
     if (!ok(done && text.startsWith('Export fertig') && !text.includes('konnte'), `${scope}: Export fertig (${secs(t)})`)) console.log(text);
-    // Am PC startet der Download selbst, am Handy per Knopf (Teilen gibt es im Headless-Chrome nicht).
-    if (touch) await press(`/herunterladen/i.test(b.textContent) && !!b.closest('[role=dialog]')`);
-    const bytes = await waitDownload(name, 60_000);
-    ok(!!bytes, `${scope}: Download ${name}${bytes ? ` (${(bytes.length / 1e6).toFixed(2)} MB)` : ' fehlt'}`);
+    await sleep(1500);
+    ok(!names.some((n) => existsSync(join(DL, n))), `${scope}: kein automatischer Download nach dem Rechnen`);
+    const actions = await exportActions();
+    const want = touch ? 'In Fotos sichern' : scope === 'alle' ? 'ZIP herunterladen' : 'Herunterladen';
+    ok(actions.length === 1 && actions[0] === want, `${scope}: genau ein Knopf „${want}“`, actions.join(' | '));
+    ok(touch ? text.includes('Im Teilen-Menü „Bild sichern“ wählen.') : !/teilen/i.test(text), `${scope}: Hinweistext passend`);
+    ok(await page.evaluate(() => document.activeElement?.closest('[role=dialog]')?.querySelector('[data-autofocus]') === document.activeElement), `${scope}: Fokus auf dem Primärknopf`);
+    await press(`b.textContent.trim() === a && !!b.closest('[role=dialog]')`, want);
+    const files = [];
+    for (const n of names) {
+      const bytes = await waitDownload(n, 60_000);
+      ok(!!bytes, `${scope}: Download ${n}${bytes ? ` (${(bytes.length / 1e6).toFixed(2)} MB)` : ' fehlt'}`);
+      files.push(bytes);
+    }
+    if (touch) ok((await page.evaluate(() => window.__shared)).length === 1, `${scope}: share() einmal aufgerufen`);
     await press(`b.textContent.trim() === 'Schließen' && !!b.closest('[role=dialog]')`);
-    return bytes;
+    return files;
   };
   const checkJpeg = async (name, bytes, source) => {
     const want = expected(source);
@@ -296,6 +334,14 @@ async function run(mode, viewport) {
     ok(await page.evaluate(() => innerWidth === document.documentElement.scrollWidth), 'Startansicht ohne Seitenüberlauf');
     ok(!requested.some((u) => u.includes('libraw')), `RAW-Dekoder wird nicht vorab geladen (${requested.length} Anfragen beim Start)`);
     ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis auf der Startseite');
+    // Ausnahme: das vorab gerechnete Titelbild im Hero (statisch, die Engine bleibt lazy).
+    ok(!requested.some((u) => u.includes('/beispiele/') && !u.includes('/beispiele/titel.jpg')), 'Startseite lädt Beispielfotos erst beim Scrollen (außer Titelbild)');
+    // Startseite unter der CSP: Beispielfoto laden und mit eigener Engine rechnen (beim Laden der Fotos wieder freigegeben).
+    await page.evaluate(() => document.getElementById('looks')?.scrollIntoView());
+    ok(
+      await waitFor(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 0), 120_000),
+      'Startseite: Vorher/Nachher am Beispielfoto live gerechnet',
+    );
 
     // Laden
     const tLoad = Date.now();
@@ -354,16 +400,22 @@ async function run(mode, viewport) {
     // Export: einzeln (kleines Foto) und alle als ZIP
     ok(await selectPhoto(1), 'zurück zu Foto 1');
     const names = PHOTOS.map((p) => p.split('/').pop().replace(/\.[^.]+$/, '') + '_filmlab.jpg');
-    const single = await exportRun('aktuell', names[0]);
+    const [single] = await exportRun('aktuell', [names[0]]);
     if (single) await checkJpeg(names[0], single, PHOTOS[0]);
-    const zip = await exportRun('alle', 'filmlab_export.zip');
-    if (zip) {
-      const entries = unzipSync(new Uint8Array(zip));
-      ok(names.every((n) => entries[n]), `ZIP enthält ${Object.keys(entries).join(', ')}`);
-      for (const [i, n] of names.entries()) {
-        if (!entries[n]) continue;
-        writeFileSync(join(DL, n), entries[n]);
-        await checkJpeg(n, Buffer.from(entries[n]), PHOTOS[i]);
+    if (touch) {
+      // iOS: share() bekommt die Einzeldateien (der Mock legt sie ab), kein ZIP.
+      const files = await exportRun('alle', names);
+      for (const [i, n] of names.entries()) if (files[i]) await checkJpeg(n, files[i], PHOTOS[i]);
+    } else {
+      const [zip] = await exportRun('alle', ['filmlab_export.zip']);
+      if (zip) {
+        const entries = unzipSync(new Uint8Array(zip));
+        ok(names.every((n) => entries[n]), `ZIP enthält ${Object.keys(entries).join(', ')}`);
+        for (const [i, n] of names.entries()) {
+          if (!entries[n]) continue;
+          writeFileSync(join(DL, n), entries[n]);
+          await checkJpeg(n, Buffer.from(entries[n]), PHOTOS[i]);
+        }
       }
     }
     await page.screenshot({ path: join(OUT, `${mode}-ende.png`) });

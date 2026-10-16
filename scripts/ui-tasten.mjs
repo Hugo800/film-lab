@@ -248,7 +248,7 @@ async function tileNames() {
         return { full: x.dataset.look, shown: l.textContent, cut: l.scrollWidth > l.clientWidth };
       }),
     );
-    const want = { 'Kodachrome 64': 'K-chrome 64', 'Kodachrome 25': 'K-chrome 25', 'Kodacolor VR 200': 'VR 200', 'Ektachrome E100': 'E100', 'Eterna Bleach Bypass': 'Bleach Bypass' };
+    const want = { 'Kodachrome 64': 'K-chr. 64', 'Kodachrome 25': 'K-chr. 25', 'Kodacolor VR 200': 'VR 200', 'Ektachrome E100': 'E100', 'Eterna Bleach Bypass': 'Bleach Bypass' };
     const bad = Object.entries(want).filter(([full, shown]) => {
       const t = tiles.find((x) => x.full === full);
       // „Bleach Byp…“ ist abgeschnitten, aber neben „Eterna“ eindeutig.

@@ -133,3 +133,57 @@ input[type='range'].regler:disabled {
     animation: none;
   }
 }
+
+/* --- Startseite --- */
+
+/* Einblenden beim Scrollen (Klasse „sichtbar“ setzt ein IntersectionObserver). */
+.einblenden {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.einblenden.sichtbar {
+  opacity: 1;
+  transform: none;
+}
+
+/* Neues Bild über dem alten: sanfte Überblendung. */
+@keyframes ueberblenden {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.ueberblenden {
+  animation: ueberblenden 0.6s ease-out both;
+}
+
+/* „Looks ansehen“: Pfeil wippt. */
+@keyframes wippen {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+.wippen {
+  animation: wippen 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .einblenden {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .ueberblenden,
+  .wippen {
+    animation: none;
+  }
+}

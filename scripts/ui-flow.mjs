@@ -9,16 +9,20 @@ const MODE = process.argv[2] ?? 'handy';
 const server = await startDevServer();
 const URL = `${server.url}/`;
 const OUT = resolve('test-output/ui-v2');
+const OUT_EXPORT = resolve('test-output/export-v3');
 const ZIP = resolve('testbilder/luts/fujifilm-official/zips/gfx-eterna-55-3d-lut-v110.zip');
 const DL = resolve(OUT, 'downloads');
 const PHOTOS = ['testbilder/DSC04866.JPEG', 'testbilder/DSC03427.JPEG'].map((p) => resolve(p));
 const CUBE = resolve(OUT, 'test.cube');
 mkdirSync(DL, { recursive: true });
+mkdirSync(OUT_EXPORT, { recursive: true });
 for (const f of readdirSync(DL)) rmSync(resolve(DL, f));
 if (!existsSync(CUBE)) writeFileSync(CUBE, 'TITLE "Testlut"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n');
 
 const viewport = MODE === 'pc' ? { width: 1440, height: 900 } : { width: 393, height: 852, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const { browser, page } = await launch({ viewport });
+// Das Handy gibt sich als iPhone aus: iOS bekommt in der Fertig-Ansicht genau einen Knopf („In Fotos sichern“).
+if (MODE !== 'pc') await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1');
 const cdp = await page.createCDPSession();
 await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
 // Teilen am Handy: Aufruf mitschreiben statt echtes Share-Sheet
@@ -292,12 +296,21 @@ await sleep(500);
 ok((await text()).includes('konnte nicht gelesen werden'), 'Kaputte LUT zeigt Fehlermeldung');
 
 // 8 Export
-await (await page.$('#datei-eingabe')).uploadFile(PHOTOS[1]);
-await sleep(800);
 const openExport = async () => {
   await click(`b.textContent.includes('Exportieren') && !!b.closest('header')`);
   await page.waitForSelector('[role=dialog]');
 };
+// Mit nur einem Foto entfällt die Wahl „Dieses Foto / Alle“.
+await openExport();
+await sleep(300);
+ok(await page.evaluate(() => !document.querySelector('input[name=umfang]') && !!document.querySelector('[role=dialog]')), 'Ein Foto: keine Umfang-Wahl');
+ok(!!(await page.evaluate(() => /Volle Auflösung/.test(document.querySelector('[role=dialog]').innerText))), 'Ein Foto: Beschreibung steht da');
+ok(await page.evaluate(() => document.activeElement?.textContent.trim() === 'Exportieren'), 'Ein Foto: Fokus auf „Exportieren“');
+await shot('6-export-wahl-1');
+await page.keyboard.press('Escape');
+ok(await waitFor(() => !document.querySelector('[role=dialog]')), 'Esc schließt den Export-Dialog');
+await (await page.$('#datei-eingabe')).uploadFile(PHOTOS[1]);
+await sleep(800);
 await openExport();
 await page.evaluate(() => document.querySelectorAll('input[name=umfang]')[1]?.click());
 await sleep(200);
@@ -313,22 +326,27 @@ await openExport();
 await page.evaluate(() => document.querySelectorAll('input[name=umfang]')[1]?.click());
 await click(`b.textContent.trim() === 'Exportieren' && !!b.closest('[role=dialog]')`);
 ok(await waitFor(() => document.body.innerText.includes('Export fertig'), 120000), 'Export von 2 Fotos fertig');
-await sleep(800);
+await sleep(1500);
 await shot('8-export-fertig');
-const body = await text();
+await page.screenshot({ path: `${OUT_EXPORT}/fertig-${MODE}.png` });
+ok(readdirSync(DL).length === 0, 'Nach dem Rechnen startet kein Download von selbst');
+const actions = await page.$$eval('[role=dialog] button', (bs) => bs.map((b) => b.textContent.trim()).filter((t) => /herunterladen|teilen|sichern/i.test(t)));
+ok(await page.evaluate(() => document.activeElement?.closest('[role=dialog]')?.querySelector('[data-autofocus]') === document.activeElement), 'Fokus auf dem Primärknopf');
 if (MODE === 'handy') {
-  ok(body.includes('Teilen / In Fotos sichern'), 'Handy: Teilen-Knopf angeboten');
-  await click(`b.textContent.includes('Teilen / In Fotos sichern')`);
+  ok(actions.length === 1 && actions[0] === 'In Fotos sichern', 'Handy (iOS): genau ein Knopf „In Fotos sichern“', actions.join(' | '));
+  ok((await text()).includes('Im Teilen-Menü „Bild sichern“ wählen.'), 'Handy (iOS): Hinweis zum Teilen-Menü');
+  await click(`b.textContent.includes('In Fotos sichern')`);
   await sleep(300);
   const shared = await page.evaluate(() => window.__shared);
   ok(shared.length === 1 && shared[0].length === 2 && shared[0].every((s) => /_filmlab\.jpg:\d+:image\/jpeg$/.test(s)), 'share() bekommt 2 JPEG-Dateien', JSON.stringify(shared));
-  await click(`b.textContent.includes('ZIP herunterladen')`);
+  ok(readdirSync(DL).length === 0, 'Handy (iOS): „In Fotos sichern“ lädt nichts herunter');
 } else {
-  ok(!body.includes('Teilen / In Fotos sichern') || true, 'PC: Download automatisch gestartet');
+  ok(actions.length === 1 && actions[0] === 'ZIP herunterladen', 'PC: genau ein Knopf „ZIP herunterladen“', actions.join(' | '));
+  await click(`b.textContent.includes('ZIP herunterladen')`);
+  await sleep(2000);
+  const files = readdirSync(DL).filter((f) => !f.endsWith('.crdownload'));
+  ok(files.some((f) => f.endsWith('.zip')), 'PC: ZIP nach Klick heruntergeladen', files.map((f) => `${f} ${statSync(resolve(DL, f)).size} B`).join(', '));
 }
-await sleep(2000);
-const files = readdirSync(DL).filter((f) => !f.endsWith('.crdownload'));
-ok(files.some((f) => f.endsWith('.zip')), 'ZIP heruntergeladen', files.map((f) => `${f} ${statSync(resolve(DL, f)).size} B`).join(', '));
 await click(`b.textContent.trim() === 'Schließen'`);
 
 // 9 Foto entfernen (× am aktiven Bild, beim letzten die Taste Entf) bis zur Startansicht, mit Rückgängig

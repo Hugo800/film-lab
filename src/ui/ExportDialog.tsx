@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, Share } from 'lucide-react';
+import { AlertTriangle, Download, ImageDown, Share } from 'lucide-react';
 import { Button } from './controls';
 import { Dialog } from './Dialog';
 import {
@@ -12,6 +12,7 @@ import {
   shareResults,
   startExport,
 } from './exporter';
+import { exportActionLabel, exportButtons, type ExportAction } from './exportButtons';
 import { useStore } from './store';
 
 const mb = (bytes: number) => `${(bytes / 1_048_576).toFixed(1).replace('.', ',')} MB`;
@@ -28,7 +29,7 @@ export function ExportDialog() {
         onClose={closeExport}
         footer={
           <>
-            <Button variant="primary" type="submit" form="export-form">
+            <Button variant="primary" type="submit" form="export-form" data-autofocus={photoCount === 1 ? '' : undefined}>
               Exportieren
             </Button>
             <Button variant="ghost" onClick={closeExport}>
@@ -44,27 +45,30 @@ export function ExportDialog() {
             void startExport(ex.scope);
           }}
         >
-          <fieldset className="mb-4 flex flex-col gap-2">
-            <legend className="sr-only">Welche Fotos?</legend>
-            {(['aktuell', 'alle'] as const).map((scope) => (
-              <label
-                key={scope}
-                className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 ${ex.scope === scope ? 'border-accent bg-raised' : 'border-line'}`}
-              >
-                <input
-                  type="radio"
-                  name="umfang"
-                  data-autofocus={ex.scope === scope ? '' : undefined}
-                  className="size-4 accent-[var(--color-accent)]"
-                  checked={ex.scope === scope}
-                  onChange={() => setScope(scope)}
-                />
-                {scope === 'aktuell' ? 'Dieses Foto' : `Alle ${photoCount} Fotos`}
-              </label>
-            ))}
-          </fieldset>
+          {photoCount > 1 && (
+            <fieldset className="mb-4 flex flex-col gap-2">
+              <legend className="sr-only">Welche Fotos?</legend>
+              {(['aktuell', 'alle'] as const).map((scope) => (
+                <label
+                  key={scope}
+                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 ${ex.scope === scope ? 'border-accent bg-raised' : 'border-line'}`}
+                >
+                  <input
+                    type="radio"
+                    name="umfang"
+                    data-autofocus={ex.scope === scope ? '' : undefined}
+                    className="size-4 accent-[var(--color-accent)]"
+                    checked={ex.scope === scope}
+                    onChange={() => setScope(scope)}
+                  />
+                  {scope === 'aktuell' ? 'Dieses Foto' : `Alle ${photoCount} Fotos`}
+                </label>
+              ))}
+            </fieldset>
+          )}
           <p className="text-sm leading-relaxed text-dim">
-            Volle Auflösung als JPEG (Qualität 92, sRGB). Aufnahmedaten bleiben erhalten. Mehrere Fotos werden nacheinander verarbeitet.
+            Volle Auflösung als JPEG (Qualität 92, sRGB). Aufnahmedaten bleiben erhalten.
+            {photoCount > 1 && ' Mehrere Fotos werden nacheinander verarbeitet.'}
           </p>
         </form>
       </Dialog>
@@ -107,16 +111,12 @@ export function ExportDialog() {
 
   const n = ex.done.length;
   const total = ex.done.reduce((a, d) => a + d.bytes, 0);
-  const touch = isTouchPrimary();
-  const share = canShareResults();
-  // Am PC startet der Download von selbst (außer nach einem Abbruch); dann ist „Schließen“ der nächste Schritt.
-  const downloaded = !touch && !ex.cancelled;
+  const buttons = exportButtons({ ios: isIos(), touch: isTouchPrimary(), canShare: canShareResults() });
   const title = ex.cancelled ? 'Export abgebrochen' : n === 0 ? 'Export fehlgeschlagen' : 'Export fertig';
-  const downloadLabel = n > 1 ? 'ZIP herunterladen' : 'Herunterladen';
-  const downloadButton = (variant: 'primary' | 'secondary', label: string) => (
-    <Button variant={variant} data-autofocus={variant === 'primary' ? '' : undefined} onClick={download}>
-      <Download size={18} />
-      {label}
+  const actionButton = (action: ExportAction, variant: 'primary' | 'secondary') => (
+    <Button variant={variant} data-autofocus={variant === 'primary' ? '' : undefined} onClick={action === 'herunterladen' ? download : () => void shareResults()}>
+      {action === 'herunterladen' ? <Download size={18} /> : action === 'sichern' ? <ImageDown size={18} /> : <Share size={18} />}
+      {exportActionLabel(action, n)}
     </Button>
   );
   const closeButton = (variant: 'primary' | 'ghost') => (
@@ -129,23 +129,10 @@ export function ExportDialog() {
       title={title}
       onClose={closeExport}
       footer={
-        n > 0 && share ? (
+        n > 0 ? (
           <>
-            <Button variant="primary" data-autofocus onClick={() => void shareResults()}>
-              <Share size={18} />
-              Teilen / In Fotos sichern
-            </Button>
-            {downloadButton('secondary', downloadLabel)}
-            {closeButton('ghost')}
-          </>
-        ) : n > 0 && downloaded ? (
-          <>
-            {closeButton('primary')}
-            {downloadButton('secondary', n > 1 ? 'ZIP erneut herunterladen' : 'Erneut herunterladen')}
-          </>
-        ) : n > 0 ? (
-          <>
-            {downloadButton('primary', downloadLabel)}
+            {actionButton(buttons.primary, 'primary')}
+            {buttons.secondary && actionButton(buttons.secondary, 'secondary')}
             {closeButton('ghost')}
           </>
         ) : (
@@ -156,11 +143,10 @@ export function ExportDialog() {
       {n > 0 && (
         <p className="mb-4 text-sm leading-relaxed text-dim">
           {n === 1 ? ex.done[0].name : `${n} Fotos`} · {mb(total)}
-          {downloaded && ' – der Download wurde gestartet.'}
           {ex.cancelled && ' Fertig geworden sind nur die Fotos bis zum Abbruch.'}
         </p>
       )}
-      {n > 0 && share && isIos() && <p className="mb-4 text-sm leading-relaxed">Im Teilen-Menü „Bild sichern“ wählen.</p>}
+      {n > 0 && buttons.hint && <p className="mb-4 text-sm leading-relaxed">{buttons.hint}</p>}
       {ex.errors.length > 0 && (
         <ul className="mb-1 flex flex-col gap-1.5 rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm text-danger" role="alert">
           {ex.errors.map((err) => (

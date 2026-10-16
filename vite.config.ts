@@ -16,7 +16,8 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,wasm,webmanifest}'],
+        // jpg: Beispielfotos der Startseite (public/beispiele, rund 1 MB), damit sie auch offline vollständig ist.
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,wasm,webmanifest}'],
         // libraw.wasm hat 1,4 MB, der Rest bleibt darunter.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',

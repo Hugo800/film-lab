@@ -71,8 +71,15 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('[role=dialog] button')].find((b) => b.textContent.trim() === 'Exportieren')?.click());
   const t0 = Date.now();
   let file = null;
+  // Nach dem Rechnen lädt der Export nicht selbst herunter: „Herunterladen“ in der Fertig-Ansicht antippen.
+  let clicked = false;
   while (Date.now() - t0 < 180000 && !file) {
     await sleep(500);
+    if (!clicked) clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('[role=dialog] button')].find((x) => x.textContent.trim() === 'Herunterladen');
+      b?.click();
+      return !!b;
+    });
     file = readdirSync(DL).find((f) => f.endsWith('.jpg') || f.endsWith('.jpeg'));
   }
   ok(!!file, 'Offline: Export erzeugt eine Datei', file ?? '');
