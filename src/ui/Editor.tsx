@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Aperture, Columns2, Download, ImagePlus, ZoomIn, ZoomOut } from 'lucide-react';
+import { Aperture, Columns2, Download, ImagePlus, Keyboard, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button, IconButton } from './controls';
 import { openExport } from './exporter';
 import { Filmstrip } from './Filmstrip';
@@ -13,10 +13,12 @@ import { useThumbnails } from './thumbs';
 const HINT_KEY = 'filmlab.tipp-original';
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Strg+';
 
-/** Tastenkürzel ruhen in Eingaben, Reglern, Segmenten, Tabs und offenen Dialogen. */
+/** Tastenkürzel ruhen in Eingaben, Reglern, Segmenten, Tabs und offenen Dialogen; die mit Strg/⌘ nur in Textfeldern. */
 const KEY_EXEMPT = 'input, textarea, select, [contenteditable], [role=slider], [role=radio], [role=tab]';
+const TEXT_FIELDS = 'textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox]):not([type=radio])';
 const keysBlocked = (e: KeyboardEvent) =>
-  (e.target instanceof Element && !!e.target.closest(KEY_EXEMPT)) || !!document.querySelector('[aria-modal="true"]');
+  (e.target instanceof Element && !!e.target.closest(e.ctrlKey || e.metaKey ? TEXT_FIELDS : KEY_EXEMPT)) ||
+  !!document.querySelector('[aria-modal="true"]');
 
 export function Editor({ onAdd }: { onAdd: () => void }) {
   const activeId = useStore((s) => s.activeId);
@@ -67,10 +69,8 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
           // Wie beim Klick: Nach dem Schließen kehrt der Fokus zu „Exportieren“ zurück.
           document.querySelector<HTMLElement>('header [aria-label="Exportieren"]')?.focus();
           openExport();
-        } else if (key === 'z' && !e.shiftKey && s.undoState) {
-          e.preventDefault();
-          s.undo();
         }
+        // Strg/⌘+Z behandelt der Toast, auch in der Startansicht.
         return;
       }
       const i = s.photos.findIndex((p) => p.id === s.activeId);
@@ -95,7 +95,7 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
 
   return (
     <div className="flex h-dvh flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] side:flex-row">
-      <div className="@container flex min-h-0 min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
+      <div className="@container flex min-h-0 min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)] side:pb-[env(safe-area-inset-bottom)]">
         <header className="flex items-center gap-2 px-3 py-1">
           <div className="flex flex-none items-center gap-2 pl-1 text-[15px] font-semibold tracking-tight">
             <Aperture size={20} className="text-accent" aria-hidden />
@@ -124,6 +124,9 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
               className={zoom ? 'bg-raised text-accent' : ''}
             >
               {zoom ? <ZoomOut size={20} /> : <ZoomIn size={20} />}
+            </IconButton>
+            <IconButton label="Tastenkürzel" title="Tastenkürzel (?)" onClick={() => setHelp(true)} className="pointer-coarse:hidden">
+              <Keyboard size={20} />
             </IconButton>
             <IconButton label="Fotos hinzufügen" onClick={onAdd}>
               <ImagePlus size={22} />

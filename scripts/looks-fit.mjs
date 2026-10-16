@@ -1,7 +1,7 @@
 // Passt die parametrischen Fujifilm-Looks (src/looks/model.ts) an lokale Messreferenzen an.
 //   node scripts/looks-fit.mjs [id ...] [--write] [--fresh] [--iters N]
 // Referenzen (nur lokal unter testbilder/, gitignoriert, nie committen): „Provia → Simulation“-Würfel in der
-// JPEG-Domäne (aus den offiziellen F-Log2-LUTs bzw. abpy) und Bildpaare derselben Szene.
+// JPEG-Domäne (aus den offiziellen F-Log2-LUTs; abpy-Würfel nur als Vergleich) und Bildpaare derselben Szene.
 // Fehlermaß: ΔE2000 auf Stichproben, gewichtet nach Farben natürlicher Fotos (Nutzer- und Referenzbilder)
 // plus ein gleichmäßiges Gitter. Optimierung: Levenberg–Marquardt mit numerischer Jacobi-Matrix.
 // --write schreibt nur die gefundenen Parameter nach src/looks/fujifilm-fit.ts – keine Tabellen.

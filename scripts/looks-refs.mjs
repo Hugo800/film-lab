@@ -26,7 +26,8 @@ export const TARGETS = {
     check: [`${ABPY}/Provia to Classic Neg sRGB.cube`],
     pairs: [pel('classic-neg'), pair('keithwee-xpro3', 'dscf0283-provia.jpg', 'dscf0283-classic-neg.jpg'), pair('keithwee-xpro3', 'dscf0294-provia.jpg', 'dscf0294-classic-neg.jpg'), ras('classic-neg')],
   },
-  'nostalgic-neg': { cube: `${ABPY}/Provia to Nostalgic Neg sRGB.cube`, pairs: [ag('80', 'NostalgicNeg'), ras('nostalgic-neg')] },
+  // ohne Würfel (abpys Würfel steht unter CC-BY-NC-SA): an Bildpaare angepasst, Farbe an Classic Neg. gebunden
+  'nostalgic-neg': { fitPairs: true, prior: 'classic-neg', pairs: [ag('80', 'NostalgicNeg'), ras('nostalgic-neg')] },
   eterna: { cube: `${DER}/provia-zu-ETERNA_srgb_33.cube`, pairs: [pel('eterna'), kw('eterna')] },
   'eterna-bleach-bypass': { cube: `${DER}/provia-zu-ETERNA-BB_srgb_33.cube`, check: [`${ABPY}/Provia to Bleach Bypass sRGB.cube`], pairs: [pel('eterna-bleach-bypass')] },
   acros: { mono: true, cube: `${DER}/provia-zu-ACROS_srgb_33.cube` },

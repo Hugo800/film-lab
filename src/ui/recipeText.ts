@@ -26,6 +26,11 @@ export interface ParsedRecipe {
   skipped: { line: string; reason: string }[];
 }
 
+/** Echte Rezepte sind unter 500 Zeichen lang; die Grenzen halten die Regexe bei eingefügtem Unsinn kurz. */
+export const MAX_RECIPE_CHARS = 2000;
+const MAX_LINE_CHARS = 200;
+const MAX_SKIPPED = 20;
+
 export const LINK_MESSAGE = 'Das ist ein Link. Kopiere von der Seite die Liste mit Film Simulation, Dynamic Range usw.';
 
 export const RECIPE_EXAMPLE = `Film Simulation: Classic Chrome
@@ -274,8 +279,10 @@ const HANDLERS: Record<string, Handler> = {
   exposurecompensation: (value, c) => {
     const m = mean(value);
     if (m === undefined) return c.skip('Wert nicht lesbar');
-    const v = clamp(Math.round(m * 100) / 100, -2, 2);
-    c.set('Belichtung', 'exposure', v, fmtThirds(v)); // wie der Regler in Drittelstufen
+    // Auf Drittel wie der Regler, damit Anzeige und Wirkung übereinstimmen. Halbe Stufen runden aufwärts:
+    // „−1 to 0“ → −1/3, „+1/3 to +2/3“ → +2/3.
+    const v = clamp(Math.round(m * 3) / 3, -2, 2);
+    c.set('Belichtung', 'exposure', v, fmtThirds(v));
   },
 };
 
@@ -322,7 +329,7 @@ function lines(text: string): string[] {
       if (merged.length === 0 || /^[A-Za-zÄÖÜäöü][^:]{0,40}:/.test(p)) merged.push(p);
       else merged[merged.length - 1] += ` / ${p}`;
     }
-    out.push(...merged.map((m) => m.trim()).filter(Boolean));
+    out.push(...merged.map((m) => m.slice(0, MAX_LINE_CHARS).trim()).filter(Boolean));
   }
   return out;
 }
@@ -341,7 +348,7 @@ function cleanTitle(line: string): string | undefined {
 export function parseRecipe(text: string): ParsedRecipe {
   const r: ParsedRecipe = { params: {}, applied: [], skipped: [] };
   let first = true;
-  for (const line of lines(text)) {
+  for (const line of lines(text.slice(0, MAX_RECIPE_CHARS))) {
     const isFirst = first;
     first = false;
     if (/^https?:\/\//i.test(line)) {
@@ -398,5 +405,6 @@ export function parseRecipe(text: string): ParsedRecipe {
       r.skipped.push({ line, reason: err.message });
     }
   }
+  r.skipped = r.skipped.slice(0, MAX_SKIPPED);
   return r;
 }

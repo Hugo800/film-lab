@@ -10,6 +10,7 @@ const KEYS: [string, string][] = [
   ['B', 'Vorher/Nachher-Teiler'],
   ['Z oder Doppelklick', '100 % ein/aus'],
   [`${MOD}Mausrad`, '100 % am Mauszeiger'],
+  ['Mausrad', 'In 100 % verschieben'],
   ['Esc', '100 % verlassen'],
   [`${MOD}E`, 'Exportieren'],
   ['Entf', 'Foto entfernen'],

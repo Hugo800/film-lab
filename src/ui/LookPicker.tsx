@@ -23,13 +23,18 @@ import { activePhoto, useStore } from './store';
 /** Kurzer Kachelname; der volle steht im title und über dem Stärke-Regler. */
 function tileName(e: Pick<LookEntry, 'name' | 'category'>): string {
   // „Monochrom + Ye“ usw. passen sonst nicht und wären abgeschnitten nicht zu unterscheiden.
-  if (e.category === 'fujifilm') return e.name.replace(/\/.*$/, '').replace(/^Monochrom /, 'Mono ');
+  if (e.category === 'fujifilm') return e.name.replace(/\/.*$/, '').replace(/^Monochrom /, 'Mono ').replace(/^Eterna /, '');
   if (e.category === 'leica')
     return e.name
       .replace(/^Leica /, '')
       .replace('Monochrom High Contrast', 'Mono HC')
       .replace(/^Monochrom /, 'Mono ');
-  if (e.category === 'kodak') return e.name.replace(/^Kodak /, '');
+  // Das unterscheidende Ende muss in die Kachel: „K-chrome 64“ neben „K-chrome 25“, „VR 200“, „E100“.
+  if (e.category === 'kodak')
+    return e.name
+      .replace(/^Kodak /, '')
+      .replace(/^Kodachrome /, 'K-chrome ')
+      .replace(/^(?:Kodacolor|Ektachrome) /, '');
   return e.name;
 }
 

@@ -334,8 +334,11 @@ export const useStore = create<State>()((set, get) => ({
     const u = get().undoState;
     if (!u) return;
     clearTimeout(undoTimer);
-    // Look-Kacheln eines wiederhergestellten Fotos rechnet useThumbnails neu.
-    set({ photos: u.photos, activeId: u.activeId, undoState: null, notice: null, zoom: false });
+    // Look-Kacheln eines wiederhergestellten Fotos rechnet useThumbnails neu. Filmstreifen-Bilder, die seit dem
+    // Merken fertig wurden, bleiben.
+    const thumbs = new Map(get().photos.map((p) => [p.id, p.thumb]));
+    const photos = u.photos.map((p) => (p.thumb ? p : { ...p, thumb: thumbs.get(p.id) ?? null }));
+    set({ photos, activeId: u.activeId, undoState: null, notice: null, zoom: false });
   },
 
   addCustomLut(name, lut) {
@@ -430,10 +433,15 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   notify(text, kind = 'info', action) {
+    // Rückgängig gilt nur, solange die Meldung es anbietet.
+    if (!action) dropUndo(get);
     set({ notice: { id: ++noticeCounter, text, kind, action } });
   },
 
-  dismissNotice: () => set({ notice: null }),
+  dismissNotice() {
+    dropUndo(get);
+    set({ notice: null });
+  },
 
   patch: (partial) => set(partial),
 }));

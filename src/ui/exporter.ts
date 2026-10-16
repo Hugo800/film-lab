@@ -27,6 +27,8 @@ export function openExport() {
   if (photos.length === 0) return;
   results = [];
   zipBlob = null;
+  // „Rückgängig“ im Toast läge über dem Dialog und schlösse die Quelle, die der Export gerade liest.
+  useStore.getState().dismissNotice();
   useStore.setState({ export: { ...EXPORT_IDLE, phase: 'wahl', scope: photos.length > 1 ? 'alle' : 'aktuell' } });
   if (photos.length === 1) void startExport('aktuell');
 }

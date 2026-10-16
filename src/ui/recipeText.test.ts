@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filmKey, findLook, findRecipeLook, numbersIn, parseRecipe, RECIPE_EXAMPLE, type RecipeLookRef } from './recipeText';
+import { filmKey, findLook, findRecipeLook, MAX_RECIPE_CHARS, numbersIn, parseRecipe, RECIPE_EXAMPLE, type RecipeLookRef } from './recipeText';
 
 const LOOKS: RecipeLookRef[] = [
   'Provia', 'Velvia', 'Astia', 'Classic Chrome', 'Pro Neg. Hi', 'Pro Neg. Std', 'Classic Neg.', 'Nostalgic Neg.', 'Eterna', 'Eterna Bleach Bypass', 'Reala Ace', 'Acros', 'Acros + Ye', 'Monochrome', 'Sepia',
@@ -58,7 +58,7 @@ describe('parseRecipe', () => {
       wbKelvin: 5500,
       wbShiftR: 2,
       wbShiftB: -4,
-      exposure: 0.67,
+      exposure: 2 / 3,
     });
     expect(r.skipped).toEqual([]);
   });
@@ -68,7 +68,7 @@ describe('parseRecipe', () => {
       'Film Simulation: Classic Chrome / Grain Effect: Strong, Small / Color Chrome Effect: Strong / Color Chrome FX Blue: Off / White Balance: 5500K, +2 Red & -4 Blue / Dynamic Range: DR400 / Highlight: -1 / Shadow: +0.5 / Color: +2 / Sharpness: -2 / High ISO NR: -4 / Clarity: -2 / Exposure Compensation: +1/3 to +1',
     );
     expect(r.film).toBe('Classic Chrome');
-    expect(r.params.exposure).toBe(0.67);
+    expect(r.params.exposure).toBe(2 / 3);
     expect(r.params.wbKelvin).toBe(5500);
     expect(r.params.wbShiftB).toBe(-4);
     expect(r.params.dynamicRange).toBe(400);
@@ -97,7 +97,7 @@ Exposure Compensation: 0 to +2/3`);
     expect(r.film).toBe('Classic Negative');
     expect(r.params).toMatchObject({
       dynamicRange: 200, highlightTone: -0.5, shadowTone: -1, color: 3, sharpness: 1, clarity: 2,
-      grainEffect: 1, grainSize: 'gross', colorChrome: 1, colorChromeBlue: 1, wbKelvin: 0, wbShiftR: 3, wbShiftB: -5, exposure: 0.33,
+      grainEffect: 1, grainSize: 'gross', colorChrome: 1, colorChromeBlue: 1, wbKelvin: 0, wbShiftR: 3, wbShiftB: -5, exposure: 1 / 3,
     });
     expect(r.skipped.map((s) => s.line)).toEqual(['Noise Reduction: -4', 'ISO: Auto, up to ISO 6400']);
   });
@@ -158,15 +158,21 @@ Shadow: +2`);
     expect(r.params).toEqual({ dynamicRange: 200, color: -2, sharpness: 4 });
   });
 
-  it('10: Belichtungskorrektur: Bereiche mitteln, Brüche, Vorzeichen', () => {
-    const e = (v: string) => parseRecipe(`Exposure Compensation: ${v}`).params.exposure;
+  it('10: Belichtungskorrektur: Bereiche mitteln und auf Drittel runden, Brüche, Vorzeichen', () => {
+    const r = (v: string) => parseRecipe(`Exposure Compensation: ${v}`);
+    const e = (v: string) => r(v).params.exposure;
     expect(e('-1/3 to +1/3')).toBe(0);
     expect(e('+2/3 to +1 1/3')).toBe(1);
-    expect(e('-1 to 0')).toBe(-0.5);
     expect(e('+1')).toBe(1);
     expect(e('0')).toBe(0);
     expect(e('+5')).toBe(2);
-    expect(e('-2/3')).toBe(-0.67);
+    expect(e('-2/3')).toBe(-2 / 3);
+    expect(e('+1/3')).toBe(1 / 3);
+    // Halbe Drittel runden aufwärts; Anzeige und Wert stimmen überein.
+    expect(e('-1 to 0')).toBe(-1 / 3);
+    expect(e('+1/3 to +2/3')).toBe(2 / 3);
+    expect(e('0 to +1/3')).toBe(1 / 3);
+    expect(r('+1/3 to +2/3').applied).toEqual([{ label: 'Belichtung', value: '+2/3 EV' }]);
   });
 
   it('11: Werte außerhalb des Bereichs werden begrenzt', () => {
@@ -269,5 +275,16 @@ Highlight: +1`);
     expect(r.skipped).toHaveLength(1);
     expect(parseRecipe('Tone Curve: +1.5H, -1S').params).toEqual({ highlightTone: 1.5, shadowTone: -1 });
     expect(parseRecipe('Tone Curve: -1S').params).toEqual({ shadowTone: -1 });
+  });
+
+  it('22: eingefügter Unsinn bleibt schnell und die Liste kurz', () => {
+    const t0 = performance.now();
+    parseRecipe('Tone Curve: ' + '1'.repeat(200_000));
+    parseRecipe('Highlight: 1' + ' '.repeat(200_000) + 'x');
+    parseRecipe('White Balance:' + ' '.repeat(100_000));
+    const many = parseRecipe('Unsinn: x\n'.repeat(100_000));
+    expect(performance.now() - t0).toBeLessThan(500);
+    expect(many.skipped).toHaveLength(20);
+    expect(MAX_RECIPE_CHARS).toBe(2000);
   });
 });

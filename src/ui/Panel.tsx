@@ -27,7 +27,7 @@ export function Panel() {
   };
 
   return (
-    <aside className="flex flex-none flex-col border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] side:h-full side:w-[clamp(300px,30vw,420px)] side:border-l side:border-t-0 side:pb-0">
+    <aside className="flex flex-none flex-col border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] side:h-full side:w-[clamp(300px,30vw,420px)] side:border-l side:border-t-0">
       <div role="tablist" aria-label="Bedienfeld" onKeyDown={onTabKey} className="flex items-center gap-1 px-2 side:border-b side:border-line">
         {TABS.map(({ id, label, icon: Icon }) => {
           const selected = tab === id;

@@ -2,10 +2,27 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { UNDO_MS, useStore } from './store';
 
+const TEXT_FIELDS = 'textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox]):not([type=radio])';
+
 export function Toast() {
   const notice = useStore((s) => s.notice);
   const dismiss = useStore((s) => s.dismissNotice);
   const editor = useStore((s) => s.photos.length > 0);
+
+  // Strg/⌘+Z, solange „Rückgängig“ angeboten wird – auch in der Startansicht nach dem letzten Foto.
+  // Ruht in Textfeldern und offenen Dialogen (wie die Kürzel im Editor).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+      if ((e.target instanceof Element && e.target.closest(TEXT_FIELDS)) || document.querySelector('[aria-modal="true"]')) return;
+      const s = useStore.getState();
+      if (!s.undoState || !s.notice?.action) return;
+      e.preventDefault();
+      s.undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (!notice) return;

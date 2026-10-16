@@ -15,9 +15,17 @@ function isIos(): boolean {
   return /iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+/** Etwas später als die Meldung „Rezept gespeichert“, die der Auslöser selbst zeigt. */
+const HINT_DELAY_MS = 5000;
+
 function showInstallHint() {
   try {
     if (localStorage.getItem(HINT_KEY)) return;
+    // Ein offenes „Rückgängig“ nicht verdrängen; der Merker gilt erst, wenn der Hinweis wirklich erschien.
+    if (useStore.getState().notice?.action) {
+      setTimeout(showInstallHint, HINT_DELAY_MS);
+      return;
+    }
     localStorage.setItem(HINT_KEY, '1');
   } catch {
     return;
@@ -33,7 +41,7 @@ export function initPersist() {
     done = true;
     unsubscribe();
     void navigator.storage?.persist?.().catch(() => {});
-    if (isIos() && !isStandalone()) showInstallHint();
+    if (isIos() && !isStandalone()) setTimeout(showInstallHint, HINT_DELAY_MS);
   };
   const unsubscribe = useStore.subscribe(check);
   check();

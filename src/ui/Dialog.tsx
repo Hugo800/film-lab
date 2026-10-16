@@ -119,7 +119,7 @@ export function Dialog({
         onFocus={(e) => (lastFocus.current = e.target)}
         className={`flex w-full flex-col rounded-t-2xl border border-line bg-panel outline-none sm:rounded-2xl ${keyboard ? 'max-h-full' : 'max-h-[90%]'} ${wide ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
       >
-        <div className="flex flex-none items-center justify-between gap-2 px-5 pb-3 pt-5">
+        <div className={`flex flex-none items-center justify-between gap-2 px-5 ${keyboard ? 'pt-2' : 'pb-3 pt-5'}`}>
           <h2 id={titleId} className="text-lg font-semibold">
             {title}
           </h2>
@@ -135,7 +135,7 @@ export function Dialog({
         {footer && (
           <div
             ref={foot}
-            className={`flex flex-none flex-col gap-2 bg-panel px-5 pt-3 sm:flex-row-reverse sm:justify-start sm:rounded-b-2xl [&>button]:w-full sm:[&>button]:w-auto ${keyboard ? 'pb-5' : 'pb-[max(1.25rem,env(safe-area-inset-bottom))]'}`}
+            className={`flex flex-none flex-col gap-2 bg-panel px-5 sm:flex-row-reverse sm:justify-start sm:rounded-b-2xl [&>button]:w-full sm:[&>button]:w-auto ${keyboard ? 'py-1.5' : 'pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3'}`}
           >
             {footer}
           </div>

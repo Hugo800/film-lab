@@ -1,6 +1,6 @@
 // Zeigergesten der Bildfläche: Halten (Original), Doppeltipp, Wischen und im Zoom Verschieben.
 // Ein Zustand für Finger, Stift und Maus; die Maus meldet ihren Doppelklick über dblclick.
-import { useRef, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, type MouseEvent, type PointerEvent } from 'react';
 
 const HOLD_MS = 150;
 const SLOP_PX = 8;
@@ -41,6 +41,16 @@ export function useGestures(zoom: boolean, handlers: GestureHandlers) {
     lastTap: null as { t: number; x: number; y: number } | null,
     mouse: false,
   });
+
+  // Endet die Lupe bei gedrücktem Zeiger, kommt dessen pointerup womöglich nirgends an: neu anfangen.
+  useEffect(() => {
+    const s = g.current;
+    clearTimeout(s.timer);
+    if (s.touch?.held) h.current.hold(false);
+    s.count = 0;
+    s.multi = false;
+    s.touch = null;
+  }, [zoom]);
 
   const release = (e: PointerEvent<HTMLElement>, cancel: boolean) => {
     const s = g.current;

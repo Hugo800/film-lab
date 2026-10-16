@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ClipboardPaste } from 'lucide-react';
-import { findRecipeLook, LINK_MESSAGE, parseRecipe } from './recipeText';
+import { findRecipeLook, LINK_MESSAGE, MAX_RECIPE_CHARS, parseRecipe } from './recipeText';
 import { builtinEntries } from './lookRegistry';
 import { Button } from './controls';
 import { Dialog } from './Dialog';
@@ -46,7 +46,7 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
   };
   const paste = () => {
     navigator.clipboard.readText().then(
-      (t) => setText(t),
+      (t) => setText(t.slice(0, MAX_RECIPE_CHARS)),
       () => notify('Kein Zugriff auf die Zwischenablage – lange ins Feld tippen und „Einsetzen“ wählen.', 'fehler'),
     );
   };
@@ -82,12 +82,13 @@ export function RecipeDialog({ onClose }: { onClose: () => void }) {
           aria-label="Rezepttext"
           value={text}
           rows={5}
+          maxLength={MAX_RECIPE_CHARS}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           onChange={(e) => setText(e.target.value)}
           placeholder={PLACEHOLDER}
-          className="w-full resize-y rounded-xl border border-line bg-ink p-3 font-mono text-base leading-snug text-fg placeholder:text-dim/50 lg:text-sm"
+          className="w-full resize-y rounded-xl border border-line bg-ink p-3 font-mono text-base leading-snug text-fg placeholder:text-dim/50 pointer-fine:text-sm"
         />
         {text.trim() && (
           <div aria-live="polite" className="flex flex-col gap-2 text-sm">

@@ -15,8 +15,10 @@ const ZOOM_MAX_EDGE = 4096 - 16;
 const ZOOM_DEBOUNCE_MS = 150;
 const LOOK_CHIP_MS = 1200;
 const RAW_NAME = /\.(arw|dng|srf|sr2|cr2|cr3|nef|raf|orf|rw2)$/i;
-// Wie die Tastenkürzel im Editor: hier gehören die Tasten dem Bedienelement.
+// Wie die Tastenkürzel im Editor: hier gehört die Leertaste dem Bedienelement.
 const OWN_KEYS = 'input, textarea, select, [contenteditable], [role=slider], [role=radio], [role=tab]';
+// Z, B, Esc und \ braucht nur ein Textfeld selbst (Regler und Segmente nicht).
+const TEXT = 'textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox]):not([type=radio])';
 
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 
@@ -43,9 +45,13 @@ function lookName(id: string, custom: CustomLut[]): string {
   return builtinEntries().find((e) => e.id === id)?.name ?? custom.find((l) => l.id === id)?.name ?? '';
 }
 
-function blockedKey(e: globalThis.KeyboardEvent) {
+/** `viaTab`: Der Fokus kam per Tab, nicht per Klick (:focus-visible taugt nicht, Chrome setzt es bei jedem Tastendruck). */
+function blockedKey(e: globalThis.KeyboardEvent, viaTab: boolean) {
   const t = e.target instanceof Element ? e.target : null;
-  return !!t?.closest(OWN_KEYS) || !!document.querySelector('[aria-modal=true]');
+  if (document.querySelector('[aria-modal=true]')) return true;
+  if (e.key !== ' ') return !!t?.closest(TEXT);
+  // Per Tab erreichte Knöpfe löst die Leertaste aus; nach einem Klick zeigt sie weiter das Original.
+  return !!t?.closest(OWN_KEYS) || (viaTab && !!t?.closest('button, a[href], summary, [role=button]'));
 }
 
 export function Preview() {
@@ -171,6 +177,11 @@ export function Preview() {
     x: clampAxis(view?.x ?? imgW / 2, imgW, viewW),
     y: clampAxis(view?.y ?? imgH / 2, imgH, viewH),
   };
+  // Für den einmal registrierten wheel-Handler.
+  const geo = useRef({ center, k, imgW, imgH, viewW, viewH });
+  geo.current = { center, k, imgW, imgH, viewW, viewH };
+  /** Verschieben per Rad: den nächsten Ausschnitt entprellt rechnen. */
+  const wheelPan = useRef(false);
   const shownCenter = drag
     ? { x: clampAxis(center.x - drag.dx * k, imgW, viewW), y: clampAxis(center.y - drag.dy * k, imgH, viewH) }
     : center;
@@ -195,7 +206,8 @@ export function Preview() {
     const y0 = Math.min(imgH - outH, Math.max(0, Math.round(center.y - outH / 2)));
     const rect = { x0, y0, x1: x0 + outW, y1: y0 + outH };
     // Reglerziehen entprellen; Verschieben, Halten und der erste Ausschnitt rechnen sofort.
-    const delay = lastZoomParams.current && lastZoomParams.current !== params ? ZOOM_DEBOUNCE_MS : 0;
+    const delay = (lastZoomParams.current && lastZoomParams.current !== params) || wheelPan.current ? ZOOM_DEBOUNCE_MS : 0;
+    wheelPan.current = false;
     lastZoomParams.current = params;
     const ac = new AbortController();
     setBusy(true);
@@ -253,12 +265,24 @@ export function Preview() {
     },
   });
 
-  // Strg+Mausrad: nach oben Lupe am Zeiger, nach unten zurück. React meldet wheel nur passiv.
+  // Strg+Mausrad: nach oben Lupe am Zeiger, nach unten zurück. Ohne Strg verschiebt das Rad die Lupe
+  // (mit Shift waagerecht). React meldet wheel nur passiv.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if (!e.ctrlKey && !e.metaKey) {
+        if (!useStore.getState().zoom || !usableRef.current) return;
+        e.preventDefault();
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+        const sideways = e.shiftKey && !e.deltaX;
+        const dx = (sideways ? e.deltaY : e.deltaX) * unit;
+        const dy = (sideways ? 0 : e.deltaY) * unit;
+        const g = geo.current;
+        wheelPan.current = true;
+        setView({ x: clampAxis(g.center.x + dx * g.k, g.imgW, g.viewW), y: clampAxis(g.center.y + dy * g.k, g.imgH, g.viewH) });
+        return;
+      }
       e.preventDefault();
       if (!usableRef.current) return;
       const on = useStore.getState().zoom;
@@ -270,15 +294,23 @@ export function Preview() {
   }, []);
 
   // Tasten: Leertaste/\ halten = Original, Z = Lupe, B = Vergleich, Esc verlässt die Lupe.
+  // Die haltende Taste per e.code: Lässt man AltGr vor ß los, meldet keyup „ß“ statt „\“.
+  const heldCode = useRef('');
   useEffect(() => {
+    let viaTab = false;
+    const pointer = () => (viaTab = false);
     const down = (e: globalThis.KeyboardEvent) => {
-      if (!usableRef.current || blockedKey(e)) return;
+      if (e.key === 'Tab') viaTab = true;
+      if (!usableRef.current || blockedKey(e, viaTab)) return;
       const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
       const s = useStore.getState();
       // Backslash kommt auf deutschen Tastaturen mit AltGr (= Strg+Alt).
       if (e.key === '\\' || (e.key === ' ' && plain)) {
         e.preventDefault();
-        if (!e.repeat) setKeyHeld(true);
+        if (!e.repeat) {
+          heldCode.current = e.code;
+          setKeyHeld(true);
+        }
       } else if (plain && !e.repeat && (e.key === 'z' || e.key === 'Z')) {
         if (s.zoom) s.patch({ zoom: false });
         else zoomInRef.current();
@@ -290,16 +322,22 @@ export function Preview() {
       }
     };
     const up = (e: globalThis.KeyboardEvent) => {
-      if (e.key === ' ' || e.key === '\\') setKeyHeld(false);
+      if (e.key === ' ' || e.key === '\\' || (heldCode.current && e.code === heldCode.current)) {
+        heldCode.current = '';
+        setKeyHeld(false);
+      }
     };
     const reset = () => {
+      heldCode.current = '';
       setKeyHeld(false);
       setPointerHeld(false);
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', reset);
+    window.addEventListener('pointerdown', pointer, true);
     return () => {
+      window.removeEventListener('pointerdown', pointer, true);
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', reset);

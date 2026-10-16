@@ -82,7 +82,8 @@ export function ExportDialog() {
           </Button>
         }
       >
-        <p tabIndex={-1} data-autofocus className="mb-1 truncate text-sm outline-none" title={ex.currentName}>
+        {/* Eigener key: React verwendet den Absatz sonst in der Fertig-Phase wieder, der Fokus fiele auf body. */}
+        <p key="laeuft" tabIndex={-1} data-autofocus className="mb-1 truncate text-sm outline-none" title={ex.currentName}>
           {ex.currentName}
         </p>
         <p className="mb-3 text-xs leading-relaxed text-dim">

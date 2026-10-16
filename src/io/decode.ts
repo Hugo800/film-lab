@@ -94,10 +94,11 @@ export interface DecodedPixels {
 
 /**
  * Dekodiert `blob`. `orientation` (EXIF, nur JPEG bekannt) wird von Hand angewendet, falls kein
- * Weg des Browsers dreht. Wirft den letzten Browserfehler, wenn nichts dekodiert.
+ * Weg des Browsers dreht. Wirft den ersten Browserfehler, wenn nichts dekodiert: Spätere Wege dekodieren
+ * defekte Dateien teilweise und scheitern dann irreführend an der Speicherzuweisung.
  */
 export async function decodeImage(blob: Blob, orientation: number, colorSpace: SourceColorSpace): Promise<DecodedPixels> {
-  let lastError: unknown = new Error('Kein Dekodierweg verfügbar');
+  let firstError: unknown;
   for (const { strategy, rotates } of await probeStrategies()) {
     try {
       const bmp = await strategy.decode(blob);
@@ -106,10 +107,10 @@ export async function decodeImage(blob: Blob, orientation: number, colorSpace: S
       bmp.close();
       return { pixels: rotated, via: `${strategy.name}+cpu` };
     } catch (e) {
-      lastError = e;
+      firstError ??= e;
     }
   }
-  throw lastError;
+  throw firstError ?? new Error('Kein Dekodierweg verfügbar');
 }
 
 /** Ziel-Koordinaten je EXIF-Orientierung für Quellpixel (x, y) in einem sw×sh-Bild. */

@@ -19,7 +19,8 @@
     "test:pwa": "node scripts/pwa-test.mjs",
     "looks:sheet": "node scripts/looks-sheet.mjs",
     "ui:flow": "node scripts/ui-flow.mjs",
-    "ui:shots": "node scripts/ui-shots.mjs"
+    "ui:shots": "node scripts/ui-shots.mjs",
+    "licenses": "node scripts/licenses.mjs"
   },
   "dependencies": {
     "@jsquash/jpeg": "^1.6.0",
