@@ -45,24 +45,31 @@ body {
   overflow: hidden;
 }
 
-/* Oberkante der Bedienelemente. In der App auf dem iPhone liegt die Seite unter der Statusleiste, und iOS legt einen
-   Schleier bis gut 30 pt darunter (gemessen am iPhone 17 Pro, iOS 27): 24 px Abstand zusätzlich, aber nur mit oberem
-   Inset – im Browser-Tab und am Rechner ist er 0. */
+/* Oberkante der Bedienelemente. In der App auf dem iPhone legt iOS einen Schleier über die obersten gut 30 pt der
+   Seite (gemessen am iPhone 17 Pro, iOS 27; der obere Inset ist dort 0): 24 px Abstand zusätzlich, nur in der App
+   auf iOS und hochkant. */
 :root {
-  --oben: calc(env(safe-area-inset-top) + min(24px, env(safe-area-inset-top)));
+  --oben: env(safe-area-inset-top);
+}
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) and (orientation: portrait) {
+    :root {
+      --oben: calc(env(safe-area-inset-top) + 24px);
+    }
+  }
 }
 
 /* Startseite: scrollt als Dokument statt in einem eigenen Container. Nur dann zeigt Safari (iOS 26+) den Inhalt unter
    Statusleiste und Toolbar; scrollt das Dokument nicht, malt es dort deckende Balken. --kopf = Höhe des stehenden
    Kopfs, auch als Abstand für Ankersprünge. */
 html:has(.startseite) {
-  --kopf: calc(var(--oben) + 4rem);
+  --kopf: calc(var(--oben) + 3rem);
   height: auto;
   scroll-padding-top: var(--kopf);
 }
-@media (max-height: 540px) {
+@media (min-width: 40rem) and (min-height: 541px) {
   html:has(.startseite) {
-    --kopf: calc(var(--oben) + 3rem);
+    --kopf: calc(var(--oben) + 4rem);
   }
 }
 html:has(.startseite) body,
