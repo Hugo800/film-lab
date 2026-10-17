@@ -17,7 +17,7 @@
 - **100-%-Lupe, Gesten, Tastenkürzel.** Die Lupe rechnet den Ausschnitt wie der Export, mit Korn und Schärfe. Bedienung am Handy per Wischen, Halten und Doppeltipp, am PC per Tastatur und Mausrad.
 - **JPEG, PNG, HEIC und Sony-ARW.** RAW-Dateien entwickelt Film Lab im Browser (LibRaw als WebAssembly) und korrigiert auf Wunsch Verzeichnung und Farbsäume wie die Kamera (Korrekturdaten aus der ARW; Schalter unter „Anpassen“, ab Werk aus). Mehrere Fotos auf einmal, ein Look lässt sich auf alle übertragen.
 - **Export in voller Auflösung** als JPEG (Qualität 92) mit den Aufnahmedaten (EXIF) der Quelle. Mehrere Fotos kommen am PC als ZIP, am iPhone über das Teilen-Menü.
-- **Als App installieren, offline nutzen.** Film Lab ist eine PWA: Nach dem ersten Besuch läuft es auch ohne Netz. „Jetzt hinzufügen“ auf der Startseite öffnet in Chrome, Edge und unter Android den Installationsdialog des Browsers. Am iPhone zeigt es die Schritte in Safari (Adressleiste gedrückt halten → Teilen → Zum Home-Bildschirm), weil eine Webseite das dort nicht selbst auslösen kann.
+- **Als App installieren, offline nutzen.** Film Lab ist eine PWA: Nach dem ersten Besuch läuft es auch ohne Netz. „Jetzt hinzufügen“ auf der Startseite öffnet in Chrome, Edge und unter Android den Installationsdialog des Browsers. Am iPhone zeigt es die Schritte in Safari (Adressleiste gedrückt halten → Teilen → Mehr anzeigen → Zum Home-Bildschirm → Hinzufügen), weil eine Webseite das dort nicht selbst auslösen kann.
 
 ### Bedienung
 

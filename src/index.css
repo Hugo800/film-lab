@@ -371,7 +371,7 @@ input[type='range'].regler:disabled {
 /* Im Teilen-Blatt nach unten scrollen bis „Zum Home-Bildschirm“. */
 @keyframes scrollen {
   to {
-    transform: translateY(-104px);
+    transform: translateY(-72px);
   }
 }
 .liste-scrollen {
@@ -389,7 +389,7 @@ input[type='range'].regler:disabled {
   }
   .liste-scrollen {
     animation: none;
-    transform: translateY(-104px);
+    transform: translateY(-72px);
   }
 }
 
