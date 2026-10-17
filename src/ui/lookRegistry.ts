@@ -16,18 +16,19 @@ export interface LookEntry {
   officialKey?: string;
 }
 
-export const CATEGORY_ORDER: LookCategory[] = ['fujifilm', 'leica', 'kodak', 'eigene'];
+export const CATEGORY_ORDER: LookCategory[] = ['fujifilm', 'leica', 'kodak', 'ricoh', 'eigene'];
 
 export const CATEGORY_LABELS: Record<EntryCategory, string> = {
   ohne: 'Original',
   fujifilm: 'Fujifilm',
   leica: 'Leica',
   kodak: 'Kodak',
+  ricoh: 'Ricoh',
   eigene: 'Eigene',
 };
 
 export const TRADEMARK_NOTE =
-  'Nachempfundene Looks. Fujifilm, Leica und Kodak sind Marken ihrer Inhaber; Film Lab steht in keiner Verbindung zu ihnen.';
+  'Nachempfundene Looks. Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer Inhaber; Film Lab steht in keiner Verbindung zu ihnen.';
 
 const builtinLuts = new Map<string, Lut3D>();
 const customLuts = new Map<string, Lut3D>();

@@ -102,7 +102,7 @@ export interface LookParams {
 }
 
 /** Gruppen in der Look-Auswahl. 'kodak' = Kodak-Filme als Fuji-Rezepte. */
-export type LookCategory = 'fujifilm' | 'leica' | 'kodak' | 'eigene';
+export type LookCategory = 'fujifilm' | 'leica' | 'kodak' | 'ricoh' | 'eigene';
 
 /** Ein Look: Farbcharakter als LUT plus Voreinstellungen der Bildeinstellungen. */
 export interface FilmLook {

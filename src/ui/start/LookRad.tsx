@@ -11,9 +11,9 @@ import { Schachtel } from './Schachtel';
 import { BREITE, FotoWahl, Kopf } from './teile';
 import { angaben, beispielUrl, GROSS, miniUrl, type BeispielId, type Foto } from './werkstatt';
 
-const MARKEN: LookCategory[] = ['fujifilm', 'leica', 'kodak'];
+const MARKEN: LookCategory[] = ['fujifilm', 'leica', 'kodak', 'ricoh'];
 /** Mit diesem Look öffnet das Rad je Marke: mittendrin (Index ≥ 4), damit der Bogen nach oben und unten gefüllt ist. */
-const START: Record<string, string> = { fujifilm: 'classic-chrome', leica: 'leica-chrome', kodak: 'kodak-gold-200' };
+const START: Record<string, string> = { fujifilm: 'classic-chrome', leica: 'leica-chrome', kodak: 'kodak-gold-200', ricoh: 'ricoh-positive-film' };
 /** Mausrad/Trackpad: so viele Pixel je Schritt, höchstens ein Schritt je SCHRITT_MS. */
 const SCHWELLE = 70;
 const SCHRITT_MS = 80;
@@ -462,12 +462,13 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
                   tabIndex={on ? 0 : -1}
                   onClick={() => markeWechseln(m)}
                   onKeyDown={markenTaste}
-                  className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition sm:min-h-11 sm:flex-none sm:px-5 sm:text-[15px] ${
+                  className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 text-[14px] font-medium transition min-[420px]:px-3.5 sm:min-h-11 sm:flex-none sm:px-5 sm:text-[15px] ${
                     on ? 'bg-raised text-fg ring-1 ring-accent/60' : 'text-dim hover:bg-raised/60 hover:text-fg'
                   }`}
                 >
                   {CATEGORY_LABELS[m]}
-                  <span className={`text-xs tabular-nums ${on ? 'text-accent' : 'text-dim/70'}`}>{count}</span>
+                  {/* Unter 390 px passen vier Marken nur ohne Anzahl in die Leiste. */}
+                  <span className={`text-xs tabular-nums max-[389px]:hidden ${on ? 'text-accent' : 'text-dim/70'}`}>{count}</span>
                 </button>
               );
             })}

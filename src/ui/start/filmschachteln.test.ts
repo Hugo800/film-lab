@@ -5,7 +5,7 @@ import { bahnPunkt, geometrie } from './bahn';
 
 describe('Filmschachteln', () => {
   it('jeder eingebaute Look hat eine eigene Schachtel der passenden Familie', () => {
-    const familie = { fujifilm: 'fuji', leica: 'leica', kodak: 'kodak' } as Record<string, string>;
+    const familie = { fujifilm: 'fuji', leica: 'leica', kodak: 'kodak', ricoh: 'ricoh' } as Record<string, string>;
     for (const look of LOOKS) {
       const s = FILMSCHACHTELN[look.id];
       expect(s, look.id).toBeDefined();
@@ -15,10 +15,10 @@ describe('Filmschachteln', () => {
     expect(Object.keys(FILMSCHACHTELN).sort()).toEqual(LOOKS.map((l) => l.id).sort());
   });
 
-  it('Leica-Schachteln tragen „Look“, Filme „135-36“; SW-Looks heißen Schwarzweiß', () => {
+  it('Leica-Schachteln tragen „Look“, Ricoh „GR“, Filme „135-36“; SW-Looks heißen Schwarzweiß', () => {
     for (const look of LOOKS) {
       const s = FILMSCHACHTELN[look.id];
-      expect(s.kennung, look.id).toBe(look.category === 'leica' ? 'Look' : '135-36');
+      expect(s.kennung, look.id).toBe(look.category === 'leica' ? 'Look' : look.category === 'ricoh' ? 'GR' : '135-36');
       const mono = look.monochrome ?? LOOKS.find((l) => l.id === look.baseLookId)?.monochrome ?? false;
       expect(s.typ === 'Schwarzweiß', look.id).toBe(mono);
     }
@@ -28,7 +28,7 @@ describe('Filmschachteln', () => {
     const marke = new Map<string, string>();
     for (const look of LOOKS) {
       const s = FILMSCHACHTELN[look.id];
-      if (s.familie === 'leica') continue;
+      if (s.familie === 'leica' || s.familie === 'ricoh') continue;
       expect(s.iso ?? s.zeichen, look.id).toBeTruthy();
       const k = `${s.name}|${s.iso ?? ''}|${s.zeichen ?? ''}`;
       expect(marke.get(k), `${look.id} gleicht ${marke.get(k)}`).toBeUndefined();

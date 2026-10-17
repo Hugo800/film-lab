@@ -8,6 +8,7 @@ import { buildLut, type LookSpec, type Vec3 } from './model.ts';
 import { FIT } from './fujifilm-fit.ts';
 import { LEICA_LOOKS } from './leica.ts';
 import { kodakLooks } from './kodak.ts';
+import { RICOH_LOOKS } from './ricoh.ts';
 
 interface LookDef {
   id: string;
@@ -65,5 +66,5 @@ const FUJI_LOOKS: FilmLook[] = DEFS.map(({ spec, defaults, ...look }) => ({
   buildLut: () => buildLut(spec, 33, look.name),
 }));
 
-/** Alle Looks in Anzeige-Reihenfolge: Fujifilm, Leica, Kodak (Rezepte auf Fujifilm-Basis). */
-export const LOOKS: FilmLook[] = [...FUJI_LOOKS, ...LEICA_LOOKS, ...kodakLooks(FUJI_LOOKS)];
+/** Alle Looks in Anzeige-Reihenfolge: Fujifilm, Leica, Kodak (Rezepte auf Fujifilm-Basis), Ricoh. */
+export const LOOKS: FilmLook[] = [...FUJI_LOOKS, ...LEICA_LOOKS, ...kodakLooks(FUJI_LOOKS), ...RICOH_LOOKS];

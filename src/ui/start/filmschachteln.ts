@@ -3,7 +3,7 @@
 import type { LookEntry } from '../lookRegistry';
 
 /** Gestaltungsfamilie: bestimmt Muster und Aufbau der Schachtel (siehe .schachtel in index.css). */
-export type Familie = 'kodak' | 'fuji' | 'leica' | 'eigen';
+export type Familie = 'kodak' | 'fuji' | 'leica' | 'ricoh' | 'eigen';
 export type FilmTyp = 'Farbnegativ' | 'Farbdia' | 'Schwarzweiß' | 'Kino' | 'Farbe' | 'Look';
 
 export interface Filmschachtel {
@@ -17,7 +17,7 @@ export interface Filmschachtel {
   iso?: string;
   /** Großes Kürzel in Akzentfarbe unten rechts (Variante, Filter), damit keine Schachtel dort leer bleibt. */
   zeichen?: string;
-  /** Klein in der Ecke: „135-36“ (Kleinbild, 36 Aufnahmen) bzw. „Look“. */
+  /** Klein in der Ecke: „135-36“ (Kleinbild, 36 Aufnahmen), „Look“ (Leica) bzw. „GR“ (Ricoh). */
   kennung: string;
   /** Karton: Verlauf von `grund` nach `grund2`. */
   grund: string;
@@ -113,7 +113,28 @@ const LEICA: Record<string, Filmschachtel> = {
   'leica-blue': leica('Blue', '#3f6fb4', true),
 };
 
-export const FILMSCHACHTELN: Readonly<Record<string, Filmschachtel>> = { ...FUJI, ...LEICA, ...KODAK };
+// Ricoh GR: graphitgrau und schlicht wie die Kamera; je Effekt eine feine Farblinie oben, Schwarzweiß etwas heller.
+const ricoh = (name: string, akzent: string, mono = false, zusatz?: string): Filmschachtel => ({
+  familie: 'ricoh', kennung: 'GR', name, zusatz, typ: mono ? 'Schwarzweiß' : 'Farbe',
+  grund: mono ? '#4a4c4f' : '#2b2c2e', grund2: mono ? '#26282a' : '#131415', akzent, schrift: '#ecece8',
+});
+const RICOH: Record<string, Filmschachtel> = {
+  'ricoh-standard': ricoh('Standard', '#b8bcc0'),
+  'ricoh-vivid': ricoh('Vivid', '#3f8fe0'),
+  'ricoh-positive-film': ricoh('Positive', '#d8452f', false, 'Film'),
+  'ricoh-negative-film': ricoh('Negative', '#e59a3a', false, 'Film'),
+  'ricoh-retro': ricoh('Retro', '#9c86b8'),
+  'ricoh-bleach-bypass': ricoh('Bleach Bypass', '#a9d3cf'),
+  'ricoh-cross-process': ricoh('Cross Process', '#22b3b8'),
+  'ricoh-cinema-yellow': ricoh('Cinema', '#d9b84a', false, 'Yellow'),
+  'ricoh-cinema-green': ricoh('Cinema', '#6fae84', false, 'Green'),
+  'ricoh-monotone': ricoh('Monotone', '#9a9da1', true),
+  'ricoh-soft-monotone': ricoh('Monotone', '#d6d8da', true, 'Soft'),
+  'ricoh-hard-monotone': ricoh('Monotone', '#111213', true, 'Hard'),
+  'ricoh-hi-contrast-bw': ricoh('Hi-Contrast', '#f2f2f0', true, 'B&W'),
+};
+
+export const FILMSCHACHTELN: Readonly<Record<string, Filmschachtel>> = { ...FUJI, ...LEICA, ...KODAK, ...RICOH };
 
 /** Schachtel zu einem Look; unbekannte und eigene Looks bekommen eine neutrale Schachtel mit ihrem Namen. */
 export function schachtelFuer(entry: Pick<LookEntry, 'id' | 'name' | 'monochrome'>): Filmschachtel {

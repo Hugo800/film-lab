@@ -1,4 +1,4 @@
-# Kamera-Looks als Vorbild: Fujifilm-Filmsimulationen, Leica Looks, Kodak-Rezepte
+# Kamera-Looks als Vorbild: Fujifilm-Filmsimulationen, Leica Looks, Kodak-Rezepte, Ricoh-Effekte
 
 Stand **16.10.2026**. Recherchebericht für Film Lab (WebGL2-Looks für Sony-a6000-Fotos). Ziel: die Looks sollen
 so aussehen und sich so einstellen lassen wie die Presets in Fujifilm- und Leica-Kameras. Das Dokument trennt
@@ -644,6 +644,75 @@ Eingangsraum von Classic/Natural ist offenbar bereits ein Rec.709-ähnlicher Vid
 | Drittanbieter | Lightroom-Profile/-Presets für Classic und Contemporary (Robin Schimko, kostenlos), Cobalt-Profile (12/2025), Capture-One-Styles aus dem Forum – **nicht heruntergeladen**, Qualität unbekannt |
 | Parameter | Contrast/Highlight/Shadow/Sharpness/Saturation −2…+2 (Film Style/Core Looks), Intensität 0–100 %; Schrittgrößen **nicht dokumentiert [?]** |
 | Korn | **nicht** Teil der Leica Looks (kein Grain-Parameter in den Handbüchern gefunden) **[B/E]** |
+
+---
+
+## 3a. Ricoh GR: Effekte (Image Control)
+
+Stand **17.10.2026**. In Film Lab als Gruppe „Ricoh“ (`src/looks/ricoh.ts`, Parameter `ricoh-fit.ts`, angepasst mit
+`node scripts/looks-fit.mjs --ricoh --write`). Rezepte für die GR (Ritchie Roesch) stehen in `ricoh-rezepte.md`, sind aber
+nicht eingebaut.
+
+**Quellen (nur lokal unter `testbilder/referenz/ricoh/`, nicht weitergegeben):**
+- asobinet.com, GR-IV-Test „Image Control“: alle 14 Effekte an einer Hafenszene (375×500, deckungsgleich) und eine
+  beschriftete Farbtafel mit 9 Feldern in allen Effekten <https://asobinet.com/review-ricoh-gr-iv-image-control/> –
+  alle Rechte vorbehalten.
+- Ricohs GR-Blog: 6 Effekte einzeln (1120×747) und alle 14 als Übersicht, eine RAW in der Kamera entwickelt
+  <https://www.grblog.jp/article/30105/> – alle Rechte vorbehalten. Die Übersicht ist beschriftet und legt die Zuordnung
+  fest: „Hard BW“ = dunkler Himmel, „Hi BW“ = heller Himmel.
+- mawari.com, GR IV (Firmware 1.01): alle 14 Effekte in einer Bahnhofshalle, 4096 px, nacheinander aus der Hand
+  aufgenommen <https://mawari.com/blog/2025/09/16/image-control-ricoh-gr-4/>, Bilder auf Flickr unter CC BY-NC-ND 4.0.
+- Nur zum Gegenlesen: everyday-gr.com (GR III, 11 Effekte, nachbearbeitet), nicht angepasst.
+- Aufbau der Effekte: Reverse Engineering der GR-III-Firmware 2.10 durch Dritte, `ciqdj/gr3-film-mods` (MIT, `FINDINGS.md`):
+  Standard, Vivid, Positive, Negative, Retro und Bleach unterscheiden sich nur durch eine 3×3-Farbmatrix vor der
+  Gammakurve, Cross Process und Hi-Contrast B&W haben eigene Kurven, Retro dunkelt zusätzlich ab **[B, nicht nachgeprüft]**.
+  Keine Werte daraus übernommen; nur als Begründung für das Modell genutzt.
+
+**Methode [M]:** Je Effekt Paare Standard ↔ Effekt aus allen Serien, die ihn zeigen (`scripts/looks-ricoh-refs.mjs`):
+- Ausrichtung per Korrelation der Helligkeit (Versatz, Drehung, Maßstab). Die Hallen-Serie liegt danach noch einige
+  Pixel daneben (Perspektive), dort fallen Pixel an Kanten heraus (Helligkeitssprung > 0,06 im Umkreis von 3 px).
+- Die Hallen-Serie hat je Aufnahme eine eigene Belichtung (Auto-ISO 250–400): Sie wird je Effekt in linearem Licht auf
+  die Helligkeit gebracht, die die deckungsgleichen Serien zeigen (Korrektur bis 0,25 EV).
+- Retro: Die Randabdunklung wird vor der Anpassung herausgerechnet; außerhalb r > 0,75 (halbe Diagonale) bleibt zu wenig
+  Signal. Im Look übernimmt der Vignette-Regler (Vorgabe 1).
+- Die Farbtafel geht als weiteres Paar ein (Grün, Gelb, Rot, Magenta fehlen in den Szenen), außer bei Retro: Dort liegen
+  die Feldstreifen in der abgedunkelten Bildfläche, ihre Lage ist unbekannt.
+- Modell und Fehlermaß wie bei Leica (Levenberg–Marquardt, ΔE2000, Vorwissen „neutral“). Zusätzlich nur für Ricoh:
+  keine farbtonabhängige Helligkeit (`hueLight` fest an 0 gebunden – frei angepasst erzeugte sie Sprünge bis 0,37 in
+  hellem Gelb), Tonkurven streng steigend und höchstens 1, keine Buntheitsverstärkung starker Farben.
+
+**Ergebnis [M]** (mittleres ΔE2000 Standard → Effekt, dann unser Look → Effekt; Serien: Hafen | GR-Blog | Halle | Tafel):
+
+| Effekt | Hafen | GR-Blog | Halle | Tafel |
+|---|---|---|---|---|
+| Vivid | 2,6 → 1,2 | 2,4 → 0,7 | 2,0 → 1,5 | 2,2 → 1,0 |
+| Positive Film | 7,0 → 1,7 | 6,8 → 1,0 | 6,1 → 2,6 | 6,3 → 1,6 |
+| Negative Film | 6,3 → 1,6 | – | 4,3 → 1,9 | 5,8 → 1,6 |
+| Retro | 10,2 → 2,1 | – | 9,9 → 2,0 | (nicht genutzt) |
+| Bleach Bypass | 23,7 → 2,1 | – | 22,2 → 2,7 | 18,6 → 1,6 |
+| Cross Process | 14,3 → 2,1 | – | 16,6 → 3,2 | 11,7 → 1,2 |
+| Cinema Yellow | 8,7 → 1,8 | 8,6 → 1,2 | 8,7 → 2,6 | 6,8 → 1,8 |
+| Cinema Green | 6,5 → 1,8 | – | 7,7 → 4,0 | 7,8 → 2,5 |
+| Monotone | 13,9 → 0,9 | 13,9 → 0,4 | 4,9 → 0,7 | 19,0 → 1,2 |
+| Soft Monotone | 14,9 → 1,2 | – | 5,8 → 1,0 | 19,6 → 1,1 |
+| Hard Monotone | 27,7 → 2,4 | 30,1 → 1,3 | 6,6 → 2,1 | 22,1 → 1,3 |
+| Hi-Contrast B&W | 19,6 → 2,4 | – | 14,1 → 4,5 | 21,6 → 3,7 |
+
+**Befunde [M]:**
+- Grauachse gegenüber Standard (Luma 0..1, Mitteltöne): Positive Film −0,07, Cinema Yellow −0,10, Negative Film +0,05,
+  Bleach Bypass +0,25, Cross Process heller in den Lichtern (+0,19), Soft Monotone hebt Schatten (+0,10) und senkt Lichter.
+- Retro dunkelt die Ränder ab, in beiden Serien gleich: 0 / −0,3 / −0,7 / −1,3 / −2,0 EV bei r = 0,15 / 0,4 / 0,6 /
+  0,78 / 0,92 (halbe Diagonale). Film Labs Vignette bei 1: −1,6 EV in der Ecke, Verlauf etwas später. In den Lichtern
+  der Hallen-Serie bleibt Retro dunkler als die Hafen-Serie – passt zu „abgeflachten Lichtern“ in den Firmware-Notizen.
+- Hi-Contrast B&W bringt kräftiges, feines Korn mit (100-%-Ausschnitt der Halle) → Vorgabe Korn „stark“, „klein“.
+  Andere Effekte zeigen bei Grundeinstellung kein Korn.
+- Hard Monotone wirkt wie ein Rotfilter: Himmelblau fast schwarz. Negative Film dreht Rot nach Orange.
+- Andere Effekte zeigen keine Randabdunklung (Schwankungen je Ring ohne Muster, bis ±0,2 EV aus dem Motiv).
+
+**Grenzen [E]:** gemessen an der GR IV; die GR III kann leicht abweichen. Wenige Farben in den Szenen (Himmel, Meer,
+Beton, Fels, rote Autos), Grün/Gelb/Magenta nur über 8 Tafelfelder. Hi-Contrast B&W und Cinema Green treffen die Halle
+schlechter (lokaler Kontrast bzw. Belichtung). HDR Tone fehlt (wirkt lokal, keine LUT). Die Ricoh-Regler (Sättigung,
+Farbton, Kontrast, Toning, Filter) gibt es nicht; Film Labs eigene Regler wirken wie bei den anderen Looks.
 
 ---
 

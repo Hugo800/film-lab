@@ -1,6 +1,6 @@
 # Film Lab
 
-**Kamera-Looks für deine Fotos – im Browser, in voller Auflösung.** Fujifilm-Filmsimulationen, Leica Looks und Kodak-Filme für Fotos der Sony a6000 und anderer Kameras, ohne Upload und ohne Konto.
+**Kamera-Looks für deine Fotos – im Browser, in voller Auflösung.** Fujifilm-Filmsimulationen, Leica Looks, Kodak-Filme und Ricoh-GR-Effekte für Fotos der Sony a6000 und anderer Kameras, ohne Upload und ohne Konto.
 
 **Live: [lab.hugobarthelmess.de](https://lab.hugobarthelmess.de)** (Startseite), Editor unter [lab.hugobarthelmess.de/lab](https://lab.hugobarthelmess.de/lab) · läuft auf iPhone und PC, installierbar als App (startet auf der schlichten Upload-Seite `/app`)
 
@@ -10,7 +10,7 @@
 
 ## Funktionen
 
-- **55 Looks.** 20 Fujifilm-Filmsimulationen (Provia, Velvia, Astia, Classic Chrome, Reala Ace, Pro Neg., Classic Neg., Nostalgic Neg., Eterna, Acros und Monochrom mit Filtern, Sepia u. a.), 18 Leica Looks (Standard, Vivid, Natural, Classic, Chrome, Teal, Cine, Selenium u. a.) und 17 Kodak-Filme als Fuji-Rezepte (Portra, Ektar, Gold, UltraMax, Kodachrome, Ektachrome, Vision3, CineStill 800T, Tri-X, T-Max u. a.). Alle sind nachempfunden, keine Originalprofile.
+- **68 Looks.** 20 Fujifilm-Filmsimulationen (Provia, Velvia, Astia, Classic Chrome, Reala Ace, Pro Neg., Classic Neg., Nostalgic Neg., Eterna, Acros und Monochrom mit Filtern, Sepia u. a.), 18 Leica Looks (Standard, Vivid, Natural, Classic, Chrome, Teal, Cine, Selenium u. a.) 17 Kodak-Filme als Fuji-Rezepte (Portra, Ektar, Gold, UltraMax, Kodachrome, Ektachrome, Vision3, CineStill 800T, Tri-X, T-Max u. a.) und 13 Effekte der Ricoh GR (Positive und Negative Film, Retro, Bleach Bypass, Cross Process, Cinema, Monotone, Hi-Contrast B&W u. a.). Alle sind nachempfunden, keine Originalprofile.
 - **Einstellungen wie im Fuji-Menü.** Dynamikbereich (DR100/200/400), Lichter und Schatten, Farbe, Schärfe, Klarheit, Weißabgleich mit Feinabstimmung, Korn (Stärke und Größe), Color Chrome Effect und FX Blue, Monochrom-Tönung. Dazu Belichtung und als Extras Halation, Vignette und Lichtlecks. Der Stärke-Regler wirkt auf den ganzen Look samt Rezept-Einstellungen: 0 % ist das Original, 50 % der Look wie definiert, darüber wird er verstärkt; eigene Änderungen bleiben dabei voll erhalten.
 - **Rezepte einfügen.** Den Text eines Rezepts von [Fuji X Weekly](https://fujixweekly.com) einfügen: Film Lab stellt Look und Einstellungen ein und zeigt, was es nicht übernehmen kann. Eigene Rezepte und `.cube`-LUTs bleiben im Browser gespeichert.
 - **Offizielle Fujifilm-LUTs selbst laden (optional).** Für zehn Simulationen veröffentlicht Fujifilm eigene LUTs. Film Lab liefert sie nicht mit, weil sie Fujifilm gehören und laut Recherche nur für den persönlichen, nicht kommerziellen Gebrauch gedacht sind, ohne Abwandlung. Wer sie selbst bei Fujifilm lädt, bekommt die Looks noch näher am Original (siehe unten).
@@ -80,7 +80,7 @@ Alles läuft im Browser. Fotos werden nicht hochgeladen, die Seite setzt keine C
 
 ## Wie genau sind die Looks?
 
-Die Looks sind **eigene parametrische Modelle** (Tonkurven, Farbmischung, Farbton-abhängige Korrekturen), keine kopierten Profile. Ihre Parameter sind gegen echte Kamerabilder abgestimmt: die Fuji-Looks gegen Kamera-JPEGs und gegen Fujifilms offizielle LUTs, die Leica Looks gegen die Beispielbilder von Leica, die Kodak-Filme als Rezepte der Fuji-Community, die selbst Annäherungen an die Filme sind.
+Die Looks sind **eigene parametrische Modelle** (Tonkurven, Farbmischung, Farbton-abhängige Korrekturen), keine kopierten Profile. Ihre Parameter sind gegen echte Kamerabilder abgestimmt: die Fuji-Looks gegen Kamera-JPEGs und gegen Fujifilms offizielle LUTs, die Leica Looks gegen die Beispielbilder von Leica, die Ricoh-Effekte gegen Vergleichsserien der GR IV (dieselbe Szene in allen Effekten), die Kodak-Filme als Rezepte der Fuji-Community, die selbst Annäherungen an die Filme sind.
 
 Gemessen am mittleren Farbabstand ΔE2000 zu echten Kamerabildern (je Simulation 1 bis 6 Bildpaare, Stand 16.10.2026):
 
@@ -88,7 +88,7 @@ Gemessen am mittleren Farbabstand ΔE2000 zu echten Kamerabildern (je Simulation
 - Fujifilms offizielle LUTs auf denselben Bildern: ΔE 0,6 bis 3,9. Der Nachbau liegt damit **meist 0 bis 0,3, höchstens 0,4 ΔE dahinter** (am größten bei Acros und Reala Ace).
 - Das ist eine kleine Stichprobe. Die Referenzbilder und -LUTs gehören Dritten und liegen nicht im Repo.
 
-Methode, Datenlage und Grenzen stehen in [docs/kamera-looks-referenz.md](docs/kamera-looks-referenz.md) (Fuji, Leica, Kodak) und [docs/open-source-film-luts.md](docs/open-source-film-luts.md) (vorhandene Nachbauten, Lizenzen, Messungen). Messskripte: `scripts/looks-fit.mjs`, `scripts/abgleich-pipeline.mjs`.
+Methode, Datenlage und Grenzen stehen in [docs/kamera-looks-referenz.md](docs/kamera-looks-referenz.md) (Fuji, Leica, Ricoh, Kodak) und [docs/open-source-film-luts.md](docs/open-source-film-luts.md) (vorhandene Nachbauten, Lizenzen, Messungen). Messskripte: `scripts/looks-fit.mjs`, `scripts/abgleich-pipeline.mjs`.
 
 ## Entwicklung
 
@@ -138,5 +138,5 @@ Film Lab ist eine statische Seite in einem nginx-Container auf einem eigenen Ser
 ## Lizenzen und Marken
 
 - **Drittanbieter:** Film Lab nutzt unter anderem LibRaw (LGPL-2.1 oder CDDL-1.0) für die RAW-Entwicklung, mozjpeg über `@jsquash/jpeg` (IJG, BSD-3-Clause, zlib; Wrapper Apache-2.0), `libraw-wasm` (ISC), fflate, React und zustand (MIT) sowie lucide-react (ISC). Hinweise und Quellen stehen in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), die vollständigen Lizenztexte in [`public/licenses.txt`](public/licenses.txt) und unter [lab.hugobarthelmess.de/licenses.txt](https://lab.hugobarthelmess.de/licenses.txt).
-- **Marken:** Fujifilm, Leica und Kodak sind Marken ihrer jeweiligen Inhaber. Film Lab steht in keiner Verbindung zu ihnen; die Looks sind Nachbildungen. Die offiziellen Fujifilm-LUTs gehören Fujifilm und sind nicht Teil dieses Repos.
+- **Marken:** Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer jeweiligen Inhaber. Film Lab steht in keiner Verbindung zu ihnen; die Looks sind Nachbildungen. Die offiziellen Fujifilm-LUTs gehören Fujifilm und sind nicht Teil dieses Repos.
 - **Beispielfotos** in `public/beispiele/` und `docs/screenshots/`: © Hugo Barthelmess. Sie haben höchstens 4000 px an der langen Kante (Startseite 2048 px, Editor-Fassung in `public/beispiele/gross/`) und keine Aufnahmedaten (EXIF, GPS). Alle Rechte vorbehalten; für den eigenen Code liegt noch keine Lizenzdatei bei.

@@ -55,7 +55,7 @@ export function StartView({ onPick }: { onPick: () => void }) {
             </figure>
 
             <div className="flex flex-col">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-accent">Fujifilm · Leica · Kodak</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-accent">Fujifilm · Leica · Kodak · Ricoh</p>
               <h1 className="mt-3 text-[44px] leading-none font-semibold tracking-[-0.03em] sm:text-6xl lg:text-7xl [@media(max-height:540px)]:text-5xl">
                 Film Lab
               </h1>

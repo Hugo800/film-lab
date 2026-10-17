@@ -434,6 +434,20 @@ input[type='range'].regler:disabled {
   color: color-mix(in srgb, var(--schrift) 72%, transparent);
 }
 
+/* Ricoh GR: graphitgrau und schlicht – feine Farblinie oben, Name gesperrt wie eine Gravur, dunkles Band. */
+.schachtel[data-familie='ricoh'] .schachtel-muster {
+  background: linear-gradient(to bottom, transparent 3cqw, var(--akzent) 3cqw, var(--akzent) 4.2cqw, transparent 4.2cqw);
+}
+.schachtel[data-familie='ricoh'] .schachtel-name {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.schachtel[data-familie='ricoh'] .schachtel-band {
+  background: rgb(0 0 0 / 0.3);
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--schrift) 75%, transparent);
+}
+
 /* Körper der Schachtel: Deckel und rechte Seite als schmale Schrägflächen – so wirkt die Vorderseite wie eine Packung. */
 .schachtel::before,
 .schachtel::after {

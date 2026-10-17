@@ -6,17 +6,22 @@
 // plus ein gleichmäßiges Gitter. Optimierung: Levenberg–Marquardt mit numerischer Jacobi-Matrix.
 // --write schreibt nur die gefundenen Parameter nach src/looks/fujifilm-fit.ts – keine Tabellen.
 // --leica: Leica-Looks gegen Leicas Beispielbilder (Standard → Look, scripts/looks-leica-refs.mjs) → src/looks/leica-fit.ts.
+// --ricoh: Ricoh-GR-Effekte gegen Vergleichsserien (Standard → Effekt, scripts/looks-ricoh-refs.mjs) → src/looks/ricoh-fit.ts.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { compileLook, buildLut, CURVE_X } from '../src/looks/model.ts';
 import { parseCube } from '../src/looks/cube.ts';
 import { readImage, shrink, sampleLut, mapImage, toLab, dE2000, imageDE } from './looks-lib.mjs';
-import { T, R, DER, TARGETS as FUJI_TARGETS, LEICA_TARGETS, ag, ras } from './looks-refs.mjs';
+import { T, R, DER, TARGETS as FUJI_TARGETS, LEICA_TARGETS, RICOH_TARGETS, ag, ras } from './looks-refs.mjs';
 import { LEICA_DIR, leicaPairs, pairsToSamples } from './looks-leica-refs.mjs';
+import { RICOH_DIR, ricohPairs } from './looks-ricoh-refs.mjs';
 
 const LEICA = process.argv.includes('--leica');
-const TARGETS = LEICA ? LEICA_TARGETS : FUJI_TARGETS;
-const OUT = LEICA ? 'test-output/leica-fit' : 'test-output/fuji-fit';
-const FIT_FILE = LEICA ? 'src/looks/leica-fit.ts' : 'src/looks/fujifilm-fit.ts';
+const RICOH = process.argv.includes('--ricoh');
+const MODE = LEICA ? 'leica' : RICOH ? 'ricoh' : 'fuji';
+const TARGETS = { fuji: FUJI_TARGETS, leica: LEICA_TARGETS, ricoh: RICOH_TARGETS }[MODE];
+const OUT = `test-output/${MODE}-fit`;
+const FIT_FILE = { fuji: 'src/looks/fujifilm-fit.ts', leica: 'src/looks/leica-fit.ts', ricoh: 'src/looks/ricoh-fit.ts' }[MODE];
+const REF_DIR = { fuji: DER, leica: LEICA_DIR, ricoh: RICOH_DIR }[MODE];
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -28,8 +33,8 @@ const UNIFORM = opt('--uniform', 0.1); // Anteil des gleichmäßigen Gitters am 
 const ids = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--iters', '--uniform'].includes(args[i - 1])));
 const selected = ids.length ? ids : Object.keys(TARGETS);
 for (const id of selected) if (!TARGETS[id]) throw new Error(`unbekannter Look ${id}`);
-if (!existsSync(LEICA ? LEICA_DIR : DER)) {
-  console.log(`Referenzen fehlen (${LEICA ? LEICA_DIR : DER}) – nichts zu tun.`);
+if (!existsSync(REF_DIR)) {
+  console.log(`Referenzen fehlen (${REF_DIR}) – nichts zu tun.`);
   process.exit(0);
 }
 mkdirSync(OUT, { recursive: true });
@@ -100,12 +105,20 @@ function layoutOf(mono) {
   if (mono) return mono === 'tint' ? [['bw', 2], ['curve0', NC], ['tint', 4]] : [['bw', 2], ['curve0', NC]];
   return [['mat', 6], ['curve0', NC], ['curve1', NC], ['curve2', NC], ['glob', 4], ['hueSat', NH], ['hueShift', NH], ['hueLight', NH]];
 }
+/** Ricoh: Tonkurve streng steigend und höchstens 1 (sonst wird die Grauachse oben flach oder knickt in den Schatten). */
+function kappen(c) {
+  if (!RICOH) return c;
+  const out = [...c];
+  for (let k = 0; k < out.length; k++) out[k] = Math.min(k > 0 ? Math.max(out[k], out[k - 1] + 0.005) : out[k], 1 - 0.006 * (out.length - 1 - k));
+  return out;
+}
+
 function toSpec(p, mono) {
   let i = 0;
   const take = (n) => Array.from(p.slice(i, (i += n)));
   if (mono) {
     const [wr, wb] = take(2);
-    const spec = { bw: [wr, 1 - wr - wb, wb], curves: [take(NC)] };
+    const spec = { bw: [wr, 1 - wr - wb, wb], curves: [kappen(take(NC))] };
     if (mono === 'tint') {
       spec.tint = take(2);
       spec.tintWhite = take(2);
@@ -114,7 +127,7 @@ function toSpec(p, mono) {
   }
   const m = take(6);
   const spec = { matrix: [1 - m[0] - m[1], m[0], m[1], m[2], 1 - m[2] - m[3], m[3], m[4], m[5], 1 - m[4] - m[5]] };
-  spec.curves = [take(NC), take(NC), take(NC)];
+  spec.curves = [kappen(take(NC)), kappen(take(NC)), kappen(take(NC))];
   [spec.saturation, spec.chromaKnee, spec.shadowSat, spec.highlightSat] = take(4);
   spec.hueSat = take(NH);
   spec.hueShift = take(NH);
@@ -142,11 +155,18 @@ function regularize(p, mono, prior, out) {
     const v = p.slice(i, i + n);
     if (name.startsWith('curve')) for (let k = 1; k < n; k++) out.push(10 * Math.min(0, v[k] - v[k - 1]));
     // Leica: Schwarz nicht unter 0 ziehen (die Nachtszenen liefern sonst eine fallende Grauachse ganz unten).
-    if (LEICA && name.startsWith('curve')) out.push(10 * Math.min(0, v[0]));
+    if ((LEICA || RICOH) && name.startsWith('curve')) out.push(10 * Math.min(0, v[0]));
+    // Ricoh: Die Serien zeigen ausgefressene Lichter und kaum gesättigte helle Farben. Ohne diese Grenzen enden Kurven
+    // über 1 (Grauachse oben flach) und die Buntheit wächst bei starken Farben (Sprünge an der Gamut-Grenze).
+    if (RICOH && name.startsWith('curve'))
+      for (let k = 0; k < n; k++) out.push(20 * Math.max(0, v[k] - 1), k > 0 ? 20 * Math.min(0, v[k] - v[k - 1] - 0.003) : 0);
+    if (RICOH && name === 'glob') out.push(5 * Math.min(0, v[1]));
     const lam = { hueSat: 0.6, hueShift: 0.02, hueLight: 4 }[name];
     if (lam) for (let k = 0; k < n; k++) out.push(lam * (v[(k + n - 1) % n] - 2 * v[k] + v[(k + 1) % n]));
     if (name === 'mat') for (const x of v) out.push(0.5 * x);
-    if (prior) for (let k = 0; k < n; k++) out.push((name.startsWith('curve') || name === 'glob' ? 0.5 : name === 'hueShift' ? 0.05 : 4) * (v[k] - prior[i + k]));
+    // Ricoh: keine farbtonabhängige Helligkeit (Firmware: Farbmatrix); frei angepasst erzeugt sie Sprünge in hellen Farben.
+    const pw = RICOH && name === 'hueLight' ? 60 : name.startsWith('curve') || name === 'glob' ? 0.5 : name === 'hueShift' ? 0.05 : 4;
+    if (prior) for (let k = 0; k < n; k++) out.push(pw * (v[k] - prior[i + k]));
     i += n;
   }
 }
@@ -263,7 +283,8 @@ const fmt = (v) => v.toFixed(2);
 async function main() {
   const all = existsSync(FIT_FILE) ? { ...(await import(`../${FIT_FILE}`)).FIT } : {};
   const fitted = args.includes('--fresh') ? {} : { ...all };
-  const nat = await naturalSamples();
+  // Natürliche Stichproben nur für Ziele mit Würfel (Fujifilm); Leica/Ricoh messen an Bildpaaren.
+  const nat = selected.some((id) => TARGETS[id].cube) ? await naturalSamples() : [];
   const uni = grid(9).map(([r, g, b]) => [r, g, b, 1 / 729]);
   const grid33 = grid(33).map(([r, g, b]) => [r, g, b, 1]);
   console.log(`${nat.length} natürliche Stichproben`);
@@ -282,7 +303,7 @@ async function main() {
       add(uni, UNIFORM);
     }
     if (t.fitPairs) list = list.concat(await pairSamples(t.pairs));
-    const leicaP = t.leica ? await leicaPairs(t.leica) : null;
+    const leicaP = t.leica ? await leicaPairs(t.leica) : t.ricoh ? await ricohPairs(t.ricoh) : null;
     if (leicaP) list = list.concat(pairsToSamples(leicaP));
     const S = packSamples(list);
     const neutral = fromSpec(mono ? { bw: [0.2126, 0.7152, 0.0722], curves: [CURVE_X] } : {}, mono);
@@ -354,7 +375,7 @@ function writeFit(all) {
     .join('\n');
   writeFileSync(
     FIT_FILE,
-    `// Erzeugt von scripts/looks-fit.mjs${LEICA ? ' --leica' : ''} – nicht von Hand ändern.\n` +
+    `// Erzeugt von scripts/looks-fit.mjs${MODE === 'fuji' ? '' : ` --${MODE}`} – nicht von Hand ändern.\n` +
       `// Eigene Modellparameter (Tonkurven, Mischung, Farbtonkorrekturen), abgestimmt gegen lokale Messungen.\n` +
       `import type { LookSpec } from './model';\n\nexport const FIT: Record<string, LookSpec> = {\n${body}\n};\n`,
   );

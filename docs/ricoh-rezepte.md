@@ -2,7 +2,8 @@
 
 Stand **16.10.2026**. Recherche für Film Lab: Was bietet <https://ricohrecipes.com/> und was davon lässt sich für Film Lab nutzen?
 Kennzeichnung wie in `kamera-looks-referenz.md`: **[B]** belegt durch die genannte Quelle, **[E]** Einschätzung, **[?]** offen.
-Noch nichts davon ist in Film Lab eingebaut.
+Die Rezepte sind nicht eingebaut; die Ricoh-Effekte selbst schon (seit 17.10.2026, Messung und Methode in
+`kamera-looks-referenz.md`, Abschnitt 3a).
 
 ---
 

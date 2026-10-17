@@ -20,9 +20,9 @@ describe('LOOKS', () => {
     }
   });
 
-  it('ordnet die Gruppen Fujifilm, Leica, Kodak nacheinander an', () => {
+  it('ordnet die Gruppen Fujifilm, Leica, Kodak, Ricoh nacheinander an', () => {
     const order = LOOKS.map((l) => l.category).filter((c, i, a) => c !== a[i - 1]);
-    expect(order).toEqual(['fujifilm', 'leica', 'kodak']);
+    expect(order).toEqual(['fujifilm', 'leica', 'kodak', 'ricoh']);
   });
 
   it('nennt die offiziellen LUT-Schlüssel genau für die Simulationen aus Fujifilms Paket', () => {
@@ -31,10 +31,12 @@ describe('LOOKS', () => {
   });
 
   it('startet mit den Werkseinstellungen der Kamera (nur bekannte Felder, keine Extras)', () => {
+    // Ausnahme: Was die Ricoh selbst im Effekt tut (Retro dunkelt die Ränder ab, Hi-Contrast B&W hat Korn).
+    const kamera: Record<string, number[]> = { 'ricoh-retro': [0, 0, 1, 0], 'ricoh-hi-contrast-bw': [0, 0, 0, 2] };
     for (const l of LOOKS.filter((x) => x.category !== 'kodak')) {
       for (const k of Object.keys(l.defaults)) expect(k in DEFAULT_PARAMS).toBe(true);
       const p = { ...DEFAULT_PARAMS, ...l.defaults };
-      expect([p.leak, p.halation, p.vignette, p.grainEffect]).toEqual([0, 0, 0, 0]);
+      expect([p.leak, p.halation, p.vignette, p.grainEffect], l.id).toEqual(kamera[l.id] ?? [0, 0, 0, 0]);
     }
   });
 

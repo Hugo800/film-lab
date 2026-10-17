@@ -52,3 +52,14 @@ export const LEICA_TARGETS = {
   'leica-brass': leica('Brass'), 'leica-pure': leica('Pure'), 'leica-cine': leica('Cine'),
   'leica-selenium': leica('Selenium', 'tint'), 'leica-sepia': leica('Sepia', 'tint'), 'leica-blue': leica('Blue', 'tint'),
 };
+
+// Ricoh GR (looks-fit.mjs --ricoh): Quelle = Effektname der Serien in testbilder/referenz/ricoh/ (siehe looks-ricoh-refs.mjs).
+// Vorwissen = neutraler Look wie bei Leica; die Serien zeigen nur wenige Farben (Himmel, Meer, Beton, Fels, rote Autos).
+const ricoh = (src, mono) => ({ ricoh: src, prior: 'neutral', ...(mono ? { mono } : {}) });
+export const RICOH_TARGETS = {
+  'ricoh-vivid': ricoh('vivid'), 'ricoh-positive-film': ricoh('positive-film'), 'ricoh-negative-film': ricoh('negative-film'),
+  'ricoh-retro': ricoh('retro'), 'ricoh-bleach-bypass': ricoh('bleach-bypass'), 'ricoh-cross-process': ricoh('cross-process'),
+  'ricoh-cinema-yellow': ricoh('cinema-yellow'), 'ricoh-cinema-green': ricoh('cinema-green'),
+  'ricoh-monotone': ricoh('monotone', true), 'ricoh-soft-monotone': ricoh('soft-monotone', true),
+  'ricoh-hard-monotone': ricoh('hard-monotone', true), 'ricoh-hi-contrast-bw': ricoh('hi-contrast-bw', true),
+};

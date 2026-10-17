@@ -35,6 +35,15 @@ function tileName(e: Pick<LookEntry, 'name' | 'category'>): string {
       .replace(/^Kodak /, '')
       .replace(/^Kodachrome /, 'K-chr. ')
       .replace(/^(?:Kodacolor|Ektachrome) /, '');
+  // „Cinema Yellow“ neben „Cinema Green“, „Hard Mono“ neben „Soft Mono“: das Unterscheidende muss sichtbar bleiben.
+  if (e.category === 'ricoh')
+    return e.name
+      .replace(/^Ricoh /, '')
+      .replace(/ Film$/, '')
+      .replace(/^Cinema /, 'Cine ')
+      .replace(/Monotone$/, 'Mono')
+      .replace(/^(Bleach|Cross) .*/, '$1')
+      .replace('Hi-Contrast B&W', 'Hi-Con B&W');
   return e.name;
 }
 

@@ -336,7 +336,7 @@ async function run(mode, viewport) {
     await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
     ok(await page.evaluate(() => innerWidth === document.documentElement.scrollWidth), 'Startansicht ohne Seitenüberlauf');
     ok(!requested.some((u) => u.includes('libraw')), `RAW-Dekoder wird nicht vorab geladen (${requested.length} Anfragen beim Start)`);
-    ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis auf der Startseite');
+    ok((await text()).includes('Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer Inhaber'), 'Markenhinweis auf der Startseite');
     // Ausnahme: das vorab gerechnete Titelbild im Hero (statisch, die Engine bleibt lazy).
     ok(!requested.some((u) => u.includes('/beispiele/') && !u.includes('/beispiele/titel.jpg')), 'Startseite lädt Beispielfotos erst beim Scrollen (außer Titelbild)');
     // Startseite unter der CSP: Beispielfoto laden und mit eigener Engine rechnen (beim Laden der Fotos wieder freigegeben).
@@ -388,7 +388,7 @@ async function run(mode, viewport) {
     const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
     ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), `Gruppen: ${groups.join(' | ')}`);
     // Im Bedienfeld steht der Markenhinweis nur in der Seitenleiste (PC), am Handy nicht.
-    if (!touch) ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
+    if (!touch) ok((await text()).includes('Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
 
     // Foto 1: Look + Regler, Vorschau ändert sich
     const before = await previewShot();

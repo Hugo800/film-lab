@@ -104,9 +104,9 @@ await click(`b.id === 'tab-looks'`);
 await sleep(200);
 const lookNames = await page.$$eval('section[aria-label] button[aria-pressed][data-look]', (b) => b.map((x) => x.dataset.look));
 const groups = await page.$$eval('section[aria-label] h3', (h) => h.map((x) => x.textContent.trim()));
-ok(['Fujifilm', 'Leica', 'Kodak', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), 'Gruppen Fujifilm, Leica, Kodak, Eigene', groups.join(' | '));
+ok(['Fujifilm', 'Leica', 'Kodak', 'Ricoh', 'Eigene'].every((g) => groups.some((x) => x.startsWith(g))), 'Gruppen Fujifilm, Leica, Kodak, Ricoh, Eigene', groups.join(' | '));
 // Der Markenhinweis steht in der Look-Liste nur in der Seitenleiste (PC), am Handy auf der Startseite.
-if (MODE === 'pc') ok((await text()).includes('Fujifilm, Leica und Kodak sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
+if (MODE === 'pc') ok((await text()).includes('Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer Inhaber'), 'Markenhinweis in der Look-Liste');
 ok(await page.evaluate(() => document.querySelectorAll('section[aria-label=Fujifilm] button[aria-pressed]').length > 3), 'Fujifilm-Gruppe hat Looks');
 console.log('Looks:', lookNames.join(' | '));
 if (lookNames.length > 2) {
