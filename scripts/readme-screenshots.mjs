@@ -8,7 +8,7 @@ import { launch, startDevServer } from './lib/browser.mjs';
 
 const OUT = 'docs/screenshots';
 const MAX_BYTES = 300 * 1024;
-const FOTOS = ['klippen', 'sonnenuntergang', 'nachts'];
+const FOTOS = ['klippen', 'sonnenuntergang', 'nachts', 'jet'];
 const fotos = (fassung) => FOTOS.map((n) => resolve(`public/beispiele/gross/${n}-${fassung}.jpg`));
 const phone = { width: 393, height: 852, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const pc = { width: 1440, height: 900, deviceScaleFactor: 1 };

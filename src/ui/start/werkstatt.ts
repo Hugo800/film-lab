@@ -7,7 +7,7 @@ import type { Engine, SourceImage } from '../../types';
 import { defaultsFor, lutFor } from '../lookRegistry';
 import { closeSource } from '../session';
 
-export type BeispielId = 'klippen' | 'sonnenuntergang' | 'nachts';
+export type BeispielId = 'klippen' | 'sonnenuntergang' | 'nachts' | 'jet';
 /** Fassung der Beispielfotos: hoch für hochkante Rahmen (Handy hochkant), sonst quer (siehe useFassung in hooks.ts). */
 export type Fassung = 'quer' | 'hoch';
 /** Ein Beispielfoto in einer Fassung, z. B. `klippen-hoch`: Dateiname und Schlüssel der Werkstatt. */
@@ -29,6 +29,7 @@ export const BEISPIELE: Beispiel[] = [
   { id: 'klippen', quer: { label: 'Klippen', pos: '50% 50%' }, hoch: { label: 'Klippen', pos: '50% 70%' } },
   { id: 'sonnenuntergang', quer: { label: 'Sonnenuntergang', pos: '50% 50%' }, hoch: { label: 'Sonnenuntergang', pos: '50% 40%' } },
   { id: 'nachts', quer: { label: 'Nachts', pos: '30% 50%' }, hoch: { label: 'Nachts', pos: '50% 70%' } },
+  { id: 'jet', quer: { label: 'F-16', pos: '60% 60%' }, hoch: { label: 'F-16', pos: '50% 90%' } },
 ];
 
 export const foto = (id: BeispielId, fassung: Fassung): Foto => `${id}-${fassung}`;

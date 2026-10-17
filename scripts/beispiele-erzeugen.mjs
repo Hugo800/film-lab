@@ -1,4 +1,5 @@
-// Beispielfotos der Startseite: node scripts/beispiele-erzeugen.mjs  (Port TEST_PORT, Vorgabe 5190)
+// Beispielfotos der Startseite: node scripts/beispiele-erzeugen.mjs [name …]  (Port TEST_PORT, Vorgabe 5190)
+// Mit Namen (z. B. jet-quer jet-hoch) nur diese Fotos; Titelbilder, Lupe und Aufräumen brauchen alle Quellen.
 // Je Foto zwei Fassungen: quer (PC, Querformat) und hoch (Handy hochkant); Namen und Ausschnitte wie BEISPIELE in
 // src/ui/start/werkstatt.ts. Alles läuft in Headless Chrome auf dem Test-Dev-Server:
 // 1. Quelle öffnen: JPEG per createImageBitmap (Chrome rechnet Display P3 nach sRGB), Sony-RAW (ARW) mit der
@@ -20,6 +21,7 @@ import { launch, startDevServer } from './lib/browser.mjs';
 const OUT = 'public/beispiele';
 // pos wie in BEISPIELE (src/ui/start/werkstatt.ts): Ausschnitt der Mini-Vorschau.
 // drehen: Horizont gerade (Grad im Uhrzeigersinn), gemessen an der Kamera-Vorschau der ARW (−1,46° geneigt).
+// ausschnitt: [x0, y0, x1, y1] als Anteil des Bildes, vor dem Verkleinern.
 // editor: kleinere Editor-Fassung, wo 4000 px zu viel zeigen (Straße: ab ~2500 px Kennzeichen lesbar).
 const PHOTOS = [
   { name: 'klippen-quer', src: 'testbilder/DSC04866.ARW', pos: [0.5, 0.5], drehen: 1.46 },
@@ -28,9 +30,14 @@ const PHOTOS = [
   { name: 'sonnenuntergang-hoch', src: 'testbilder/IMG_0366.JPEG', pos: [0.5, 0.4] },
   { name: 'nachts-quer', src: 'testbilder/IMG_0558.JPEG', pos: [0.3, 0.5] },
   { name: 'nachts-hoch', src: 'testbilder/IMG_0562.JPEG', pos: [0.5, 0.7] },
-  // Platz für ein viertes Foto (quer und hoch, dazu BEISPIELE in werkstatt.ts). Früher „garten“: quer der Hund
-  // (DSC03982.JPEG, nicht mehr gewünscht), hoch die Straße (IMG_0148.JPEG mit editor: 2048, Kennzeichen ab ~2500 px lesbar).
+  // F-16 auf der Intrepid (iPhone). Quer links bündig auf 3:2 beschnitten (rechts stand ein erkennbarer Besucher),
+  // Editor-Fassung höchstens 2048 px, damit Besucher im Hintergrund auch in der Lupe nicht erkennbar sind.
+  { name: 'jet-quer', src: 'testbilder/f16-quer.jpg', pos: [0.6, 0.6], ausschnitt: [0, 0, 0.84375, 1], editor: 2048 },
+  { name: 'jet-hoch', src: 'testbilder/f16-hoch.jpg', pos: [0.5, 0.9], editor: 2048 },
 ];
+/** Nur diese Fotos (Namen auf der Kommandozeile), sonst alle. */
+const NUR = process.argv.slice(2);
+for (const n of NUR) if (!PHOTOS.some((p) => p.name === n)) throw new Error(`Unbekanntes Foto ${n}`);
 /** Lange Kante: Seite wie GROSS in werkstatt.ts, Editor-Fassung; kleinere Quellen bleiben in voller Größe. */
 const SEITE = 2048;
 const EDITOR = 4000;
@@ -146,7 +153,7 @@ try {
     };
   });
 
-  for (const p of PHOTOS) {
+  for (const p of PHOTOS.filter((p) => NUR.length === 0 || NUR.includes(p.name))) {
     const t0 = Date.now();
     const res = await page.evaluate(
       async (p, edges, miniSize, q) => {
@@ -194,6 +201,13 @@ try {
         } else {
           voll = await createImageBitmap(new Blob([await (await fetch(`/${p.src}`)).arrayBuffer()]));
         }
+        if (p.ausschnitt) {
+          const [x0, y0, x1, y1] = p.ausschnitt;
+          const [w, h] = [Math.round((x1 - x0) * voll.width), Math.round((y1 - y0) * voll.height)];
+          const c = new OffscreenCanvas(w, h);
+          c.getContext('2d').drawImage(voll, Math.round(x0 * voll.width), Math.round(y0 * voll.height), w, h, 0, 0, w, h);
+          voll = c;
+        }
         const quelle = [voll.width, voll.height];
         const gross = await H.verkleinern(voll, p.editor ?? edges[1]);
         const seite = await H.verkleinern(voll, edges[0]);
@@ -225,60 +239,62 @@ try {
     save(`mini/${p.name}.jpg`, res.mini, GRENZE.mini);
   }
 
-  // Engine der App, ohne Werkstatt: Titel aus den unkomprimierten Pixeln der Seitenfassung, Lupe aus der vollen
-  // RAW-Entwicklung (100 %: ein Quellpixel je Bildpixel, Korn in Originalgröße).
-  const [titel, titelHoch, lupe] = await page.evaluate(
-    async (titelLook, lupe, q) => {
-      const H = window.H;
-      const { createEngine } = await import('/src/engine/index.ts');
-      const { defaultsFor, lutFor } = await import('/src/ui/lookRegistry.ts');
-      const engine = createEngine(document.createElement('canvas'));
+  if (NUR.length === 0) {
+    // Engine der App, ohne Werkstatt: Titel aus den unkomprimierten Pixeln der Seitenfassung, Lupe aus der vollen
+    // RAW-Entwicklung (100 %: ein Quellpixel je Bildpixel, Korn in Originalgröße).
+    const [titel, titelHoch, lupe] = await page.evaluate(
+      async (titelLook, lupe, q) => {
+        const H = window.H;
+        const { createEngine } = await import('/src/engine/index.ts');
+        const { defaultsFor, lutFor } = await import('/src/ui/lookRegistry.ts');
+        const engine = createEngine(document.createElement('canvas'));
 
-      // Titel: links Original, rechts Look, dazwischen eine feine helle Linie mit weichem Schatten.
-      async function titelBild(seite, fileName) {
-        const W = seite.width;
-        const Hh = seite.height;
-        const px = new OffscreenCanvas(W, Hh);
-        px.getContext('2d').drawImage(seite, 0, 0);
-        const d = px.getContext('2d').getImageData(0, 0, W, Hh).data;
-        const quelle = { id: fileName, fileName, width: W, height: Hh, colorSpace: 'srgb', pixels: { data: new Uint8Array(d.buffer), width: W, height: Hh }, meta: {}, isRaw: false };
-        engine.setSource(quelle);
-        const look = await engine.renderThumbnail(lutFor(titelLook), defaultsFor(titelLook), Math.max(W, Hh));
-        const c = new OffscreenCanvas(W, Hh);
-        const g = c.getContext('2d');
-        g.drawImage(seite, 0, 0);
-        const mid = Math.round(W / 2);
-        g.drawImage(look, mid, 0, W - mid, Hh, mid, 0, W - mid, Hh);
-        g.shadowColor = 'rgba(0,0,0,0.5)';
-        g.shadowBlur = 12;
-        g.fillStyle = 'rgba(255,255,255,0.92)';
-        g.fillRect(mid - 1, 0, 2, Hh);
-        return H.kodieren(c, q);
-      }
-      const quer = await titelBild(window.__titelQuelle, 'klippen-quer.jpg');
-      const hoch = await titelBild(window.__titelHochQuelle, 'klippen-hoch.jpg');
+        // Titel: links Original, rechts Look, dazwischen eine feine helle Linie mit weichem Schatten.
+        async function titelBild(seite, fileName) {
+          const W = seite.width;
+          const Hh = seite.height;
+          const px = new OffscreenCanvas(W, Hh);
+          px.getContext('2d').drawImage(seite, 0, 0);
+          const d = px.getContext('2d').getImageData(0, 0, W, Hh).data;
+          const quelle = { id: fileName, fileName, width: W, height: Hh, colorSpace: 'srgb', pixels: { data: new Uint8Array(d.buffer), width: W, height: Hh }, meta: {}, isRaw: false };
+          engine.setSource(quelle);
+          const look = await engine.renderThumbnail(lutFor(titelLook), defaultsFor(titelLook), Math.max(W, Hh));
+          const c = new OffscreenCanvas(W, Hh);
+          const g = c.getContext('2d');
+          g.drawImage(seite, 0, 0);
+          const mid = Math.round(W / 2);
+          g.drawImage(look, mid, 0, W - mid, Hh, mid, 0, W - mid, Hh);
+          g.shadowColor = 'rgba(0,0,0,0.5)';
+          g.shadowBlur = 12;
+          g.fillStyle = 'rgba(255,255,255,0.92)';
+          g.fillRect(mid - 1, 0, 2, Hh);
+          return H.kodieren(c, q);
+        }
+        const quer = await titelBild(window.__titelQuelle, 'klippen-quer.jpg');
+        const hoch = await titelBild(window.__titelHochQuelle, 'klippen-hoch.jpg');
 
-      const [x, y, lw, lh] = lupe.rect;
-      const src = window.__lupeQuelle;
-      const bmp = await engine.renderRegion(src, lutFor(lupe.look), defaultsFor(lupe.look), { x0: x, y0: y, x1: x + lw, y1: y + lh }, lw, lh);
-      engine.dispose();
-      return [quer, hoch, await H.kodieren(bmp, 90)];
-    },
-    TITEL_LOOK,
-    LUPE,
-    QUALITAET,
-  );
-  save('titel.jpg', titel, GRENZE.titel);
-  save('titel-hoch.jpg', titelHoch, GRENZE.titel);
-  save('lupe.jpg', lupe, GRENZE.lupe);
+        const [x, y, lw, lh] = lupe.rect;
+        const src = window.__lupeQuelle;
+        const bmp = await engine.renderRegion(src, lutFor(lupe.look), defaultsFor(lupe.look), { x0: x, y0: y, x1: x + lw, y1: y + lh }, lw, lh);
+        engine.dispose();
+        return [quer, hoch, await H.kodieren(bmp, 90)];
+      },
+      TITEL_LOOK,
+      LUPE,
+      QUALITAET,
+    );
+    save('titel.jpg', titel, GRENZE.titel);
+    save('titel-hoch.jpg', titelHoch, GRENZE.titel);
+    save('lupe.jpg', lupe, GRENZE.lupe);
 
-  // Was nicht mehr entsteht (frühere Fotos), fällt weg.
-  for (const dir of ['', 'mini/', 'gross/'])
-    for (const f of readdirSync(`${OUT}/${dir}`, { withFileTypes: true }))
-      if (f.isFile() && !geschrieben.has(dir + f.name)) {
-        rmSync(`${OUT}/${dir}${f.name}`);
-        console.log(`entfernt ${dir}${f.name}`);
-      }
+    // Was nicht mehr entsteht (frühere Fotos), fällt weg.
+    for (const dir of ['', 'mini/', 'gross/'])
+      for (const f of readdirSync(`${OUT}/${dir}`, { withFileTypes: true }))
+        if (f.isFile() && !geschrieben.has(dir + f.name)) {
+          rmSync(`${OUT}/${dir}${f.name}`);
+          console.log(`entfernt ${dir}${f.name}`);
+        }
+  }
 } finally {
   await browser.close();
   await server.close();
