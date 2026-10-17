@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Bookmark, BookOpen, Check, ChevronLeft, Copy, Ellipsis, Plus, Share, SquarePlus, Star } from 'lucide-react';
+import { AlignLeft, Bookmark, BookOpen, Check, ChevronLeft, Copy, Plus, RotateCw, Share, SquarePlus } from 'lucide-react';
 import { Button } from '../controls';
 import { Dialog } from '../Dialog';
 import { diesePlattform, installieren, useInstallweg, type Plattform } from '../install';
@@ -111,7 +111,7 @@ const STEP_MS = 2800;
 
 const SCHRITTE_IOS: ReactNode[] = [
   <>
-    In Safari auf <b className="font-semibold text-fg">•••</b> neben der Adresse tippen.
+    In Safari die <b className="font-semibold text-fg">Adressleiste gedrückt halten</b>.
   </>,
   <>
     <b className="font-semibold text-fg">Teilen</b> wählen.
@@ -166,7 +166,7 @@ function Anleitung({ plattform, onClose }: { plattform: Plattform; onClose: () =
   );
 }
 
-/** Nachgestellte Schritte in Safari (ab iOS 26): läuft von selbst durch, ein Tipp auf einen Schritt hält dort an. */
+/** Nachgestellte Schritte in Safari (iOS 26/27): läuft von selbst durch, ein Tipp auf einen Schritt hält dort an. */
 function TeilenAnleitung() {
   const [schritt, setSchritt] = useState(0);
   const [auto, setAuto] = useState(() => !matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -178,10 +178,10 @@ function TeilenAnleitung() {
 
   return (
     <div>
-      <div aria-hidden className="relative mx-auto h-[270px] w-full max-w-[320px] overflow-hidden rounded-[1.75rem] border border-line bg-[#101012] text-white">
+      <div aria-hidden className="relative mx-auto h-[240px] w-full max-w-[320px] overflow-hidden rounded-[1.75rem] border border-line bg-[#101012] text-white">
         <SafariSeite />
         <div key={schritt} className="absolute inset-0">
-          {schritt <= 1 && <Leiste tipp={schritt === 0} />}
+          {schritt <= 1 && <Leiste halten={schritt === 0} />}
           {schritt === 1 && <Menue />}
           {schritt === 2 && <Teilenblatt />}
           {schritt === 3 && <Hinzufuegen />}
@@ -197,7 +197,7 @@ function TeilenAnleitung() {
                 setAuto(false);
                 setSchritt(i);
               }}
-              className={`flex min-h-11 w-full items-start gap-3 border-t border-line py-2.5 text-left text-[15px] leading-relaxed transition-colors ${
+              className={`flex min-h-11 w-full items-start gap-3 border-t border-line py-2 text-left text-[15px] leading-relaxed transition-colors ${
                 i === schritt ? 'text-fg' : 'text-dim hover:text-fg'
               }`}
             >
@@ -208,7 +208,7 @@ function TeilenAnleitung() {
         ))}
       </ol>
       <p className="mt-2 text-[13px] leading-relaxed text-dim">
-        Ältere iOS-Versionen zeigen das Teilen-Symbol direkt in der Leiste, das iPad oben rechts. In Chrome liegt es oben in der
+        Ältere iOS-Versionen: Teilen-Symbol in der Leiste oder hinter •••, am iPad oben rechts. In Chrome oben in der
         Adressleiste.
       </p>
     </div>
@@ -230,18 +230,20 @@ function SafariSeite() {
   );
 }
 
-/** Safaris Leiste unten (ab iOS 26): Zurück, Adresse, •••. */
-function Leiste({ tipp }: { tipp: boolean }) {
+/** Safaris Leiste unten (iOS 26/27): Zurück, Adressfeld mit Seitenmenü und Neu laden, Tabs. Teilen: Adressfeld halten. */
+function Leiste({ halten }: { halten: boolean }) {
   return (
     <div className="absolute inset-x-3 bottom-3 flex items-center gap-2">
-      <span className="flex size-10 flex-none items-center justify-center rounded-full bg-[#2c2c30]/95 shadow-lg">
+      <span className="flex size-10 flex-none items-center justify-center rounded-full bg-white/75 text-black/35 shadow-lg">
         <ChevronLeft size={18} />
       </span>
-      <span className="flex h-10 min-w-0 flex-1 items-center justify-center truncate rounded-full bg-[#2c2c30]/95 px-3 text-[12px] shadow-lg">
-        {location.host || 'lab.hugobarthelmess.de'}
+      <span className={`relative flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full bg-[#2c2c30]/95 px-3 text-[12px] shadow-lg ${halten ? 'halten' : ''}`}>
+        <AlignLeft size={15} className="flex-none" />
+        <span className="min-w-0 flex-1 truncate text-center">{location.host || 'lab.hugobarthelmess.de'}</span>
+        <RotateCw size={14} className="flex-none" />
       </span>
-      <span className={`flex size-10 flex-none items-center justify-center rounded-full bg-[#2c2c30]/95 shadow-lg ${tipp ? 'tipp' : ''}`}>
-        <Ellipsis size={18} />
+      <span className="flex size-10 flex-none items-center justify-center rounded-full bg-white/75 text-black/80 shadow-lg">
+        <Copy size={16} />
       </span>
     </div>
   );
@@ -255,11 +257,10 @@ function Menue() {
     </span>
   );
   return (
-    <div className="menue-rein absolute right-3 bottom-16 flex w-[210px] flex-col rounded-2xl bg-[#2c2c30]/97 p-1.5 text-[12px] shadow-2xl">
+    // Menü über dem gedrückt gehaltenen Adressfeld.
+    <div className="menue-rein absolute bottom-16 left-1/2 flex w-[190px] -translate-x-1/2 flex-col rounded-2xl bg-[#2c2c30]/97 p-1.5 text-[12px] shadow-2xl">
+      {zeile(<Copy size={15} />, 'Kopieren')}
       {zeile(<Share size={15} />, 'Teilen', true)}
-      {zeile(<Bookmark size={15} />, 'Lesezeichen hinzufügen')}
-      {zeile(<Star size={15} />, 'Zu Favoriten hinzufügen')}
-      {zeile(<BookOpen size={15} />, 'Zur Leseliste hinzufügen')}
     </div>
   );
 }

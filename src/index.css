@@ -316,6 +316,40 @@ input[type='range'].regler:disabled {
   box-shadow: 0 0 0 2px var(--color-accent);
   animation: tippen 1.4s 0.35s ease-out infinite;
 }
+/* Adressfeld gedrückt halten: Ring wie .tipp, dazu ein Fingerpunkt, der beim Halten wächst. */
+@keyframes halten {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  20% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+.halten {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+.halten::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 2px solid rgb(255 255 255 / 0.85);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.3);
+  animation: halten 1.6s 0.3s ease-out infinite;
+}
 @keyframes blatt {
   from {
     transform: translateY(100%);
@@ -337,7 +371,7 @@ input[type='range'].regler:disabled {
 /* Im Teilen-Blatt nach unten scrollen bis „Zum Home-Bildschirm“. */
 @keyframes scrollen {
   to {
-    transform: translateY(-78px);
+    transform: translateY(-104px);
   }
 }
 .liste-scrollen {
@@ -349,12 +383,13 @@ input[type='range'].regler:disabled {
   .menue-rein {
     animation: none;
   }
-  .tipp {
+  .tipp,
+  .halten::after {
     animation: none;
   }
   .liste-scrollen {
     animation: none;
-    transform: translateY(-78px);
+    transform: translateY(-104px);
   }
 }
 
