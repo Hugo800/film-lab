@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Aperture, Columns2, Download, ImagePlus, Keyboard, ZoomIn, ZoomOut } from 'lucide-react';
+import { Aperture, ArrowRight, Columns2, Download, ImagePlus, Keyboard, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button, IconButton } from './controls';
 import { openExport } from './exporter';
 import { Filmstrip } from './Filmstrip';
 import { Panel } from './Panel';
 import { Preview } from './Preview';
-import { START_URL, zurStartseite } from './route';
+import { heimUrl, nachHause, zumEditor } from './route';
 import { openPhoto } from './session';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { activePhoto, useStore } from './store';
@@ -153,15 +153,15 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-/** „Film Lab“ oben links: führt zur Startseite, die Fotos bleiben geladen. */
+/** „Film Lab“ oben links: führt zur Startseite (in der App auf dem Homescreen zu /app), die Fotos bleiben geladen. */
 function Logo() {
   return (
     <a
-      href={START_URL}
+      href={heimUrl()}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
-        zurStartseite();
+        nachHause();
       }}
       className="flex min-h-11 flex-none items-center gap-2 rounded-lg pl-1 pr-2 text-[15px] font-semibold tracking-tight"
     >
@@ -171,8 +171,9 @@ function Logo() {
   );
 }
 
-/** Editor (/lab) ohne Fotos: Fotos wählen oder hierher ziehen. */
-export function EditorLeer({ onAdd }: { onAdd: () => void }) {
+/** Nur Fotos wählen oder hierher ziehen: /app (Start der App auf dem Homescreen) und /lab ohne Fotos. */
+export function Hochladen({ onAdd, titel }: { onAdd: () => void; titel: string }) {
+  const fotos = useStore((s) => s.photos.length);
   return (
     <div className="@container flex h-dvh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
       <header className="flex items-center gap-2 px-3 py-1">
@@ -180,12 +181,18 @@ export function EditorLeer({ onAdd }: { onAdd: () => void }) {
       </header>
       <main className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
         <ImagePlus size={32} className="text-accent" aria-hidden />
-        <h1 className="text-xl font-semibold">Noch keine Fotos</h1>
+        <h1 className="text-xl font-semibold">{titel}</h1>
         <p className="max-w-sm text-sm leading-relaxed text-dim">JPEG, PNG, HEIC oder Sony-RAW (ARW) wählen oder hierher ziehen.</p>
         <Button variant="primary" onClick={onAdd} className="mt-2 min-h-14 px-8 text-lg">
           <ImagePlus size={22} />
           Fotos wählen
         </Button>
+        {fotos > 0 && (
+          <Button variant="ghost" onClick={zumEditor}>
+            <ArrowRight size={18} />
+            Weiter bearbeiten ({fotos} {fotos === 1 ? 'Foto' : 'Fotos'})
+          </Button>
+        )}
       </main>
     </div>
   );

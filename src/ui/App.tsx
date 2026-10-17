@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { ImagePlus } from 'lucide-react';
 import { parseCube } from '../looks';
-import { Editor, EditorLeer } from './Editor';
+import { Editor, Hochladen } from './Editor';
 import { ExportDialog } from './ExportDialog';
 import { addPhotos } from './intake';
 import { registerCustomLut } from './lookRegistry';
 import { importOfficialLuts } from './officialLuts';
-import { useImEditor } from './route';
+import { useSeite } from './route';
 import { describeError } from './session';
 import { StartView } from './StartView';
 import { loadOfficialLuts, loadPresets, loadStoredLuts, loadUseOfficial, saveUseOfficial } from './storage';
@@ -46,7 +46,7 @@ async function dropFiles(files: File[]) {
 
 export default function App() {
   const hasPhotos = useStore((s) => s.photos.length > 0);
-  const editor = useImEditor();
+  const seite = useSeite();
   const input = useRef<HTMLInputElement>(null);
   const pick = () => input.current?.click();
 
@@ -103,7 +103,13 @@ export default function App() {
 
   return (
     <>
-      {!editor ? <StartView onPick={pick} /> : hasPhotos ? <Editor onAdd={pick} /> : <EditorLeer onAdd={pick} />}
+      {seite === 'start' ? (
+        <StartView onPick={pick} />
+      ) : seite === 'editor' && hasPhotos ? (
+        <Editor onAdd={pick} />
+      ) : (
+        <Hochladen onAdd={pick} titel={seite === 'app' ? 'Film Lab' : 'Noch keine Fotos'} />
+      )}
       <input
         ref={input}
         id="datei-eingabe"
@@ -118,7 +124,7 @@ export default function App() {
           e.target.value = '';
         }}
       />
-      {dragging && editor && (
+      {dragging && seite !== 'start' && (
         <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-3 border-4 border-dashed border-accent bg-black/70 text-lg">
           <ImagePlus size={36} className="text-accent" aria-hidden />
           Zum Hinzufügen loslassen

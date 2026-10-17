@@ -2,7 +2,7 @@
 
 **Kamera-Looks für deine Fotos – im Browser, in voller Auflösung.** Fujifilm-Filmsimulationen, Leica Looks und Kodak-Filme für Fotos der Sony a6000 und anderer Kameras, ohne Upload und ohne Konto.
 
-**Live: [lab.hugobarthelmess.de](https://lab.hugobarthelmess.de)** (Startseite), Editor unter [lab.hugobarthelmess.de/lab](https://lab.hugobarthelmess.de/lab) · läuft auf iPhone und PC, installierbar als App
+**Live: [lab.hugobarthelmess.de](https://lab.hugobarthelmess.de)** (Startseite), Editor unter [lab.hugobarthelmess.de/lab](https://lab.hugobarthelmess.de/lab) · läuft auf iPhone und PC, installierbar als App (startet auf der schlichten Upload-Seite `/app`)
 
 <p align="center">
   <img src="docs/screenshots/start-pc.jpg" alt="Film Lab am PC: Beispielfoto der Küste, links Original, rechts mit Velvia" width="100%">

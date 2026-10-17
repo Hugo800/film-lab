@@ -66,6 +66,7 @@ try {
   ok(inst.installabilityErrors.length === 0, 'Page.getInstallabilityErrors leer', JSON.stringify(inst.installabilityErrors));
   const manifest = await page.evaluate(() => fetch('manifest.webmanifest').then((r) => r.json()));
   ok(manifest.icons.some((i) => i.purpose === 'maskable') && manifest.display === 'standalone', 'Manifest: maskable-Symbol, standalone');
+  ok(manifest.start_url === './app' && manifest.id === './', 'Manifest: App startet unter /app, Kennung unverändert', `${manifest.start_url} / ${manifest.id}`);
 
   // 3 Offline
   await page.setOfflineMode(true);
@@ -76,6 +77,10 @@ try {
     await page.goto(URL + pfad, { waitUntil: 'networkidle0' });
     ok(await page.evaluate(() => document.body.innerText.includes('Noch keine Fotos')), `Offline: /${pfad} zeigt den leeren Editor`);
   }
+  await page.goto(URL + 'app', { waitUntil: 'networkidle0' });
+  ok(await page.evaluate(() => document.body.innerText.includes('Fotos wählen') && !document.body.innerText.includes('Mit Beispielfoto')), 'Offline: /app zeigt nur die Upload-Seite');
+  await page.goto(URL + 'test', { waitUntil: 'networkidle0' });
+  ok(await page.evaluate(() => location.pathname === '/' && document.body.innerText.includes('Mit Beispielfoto')), 'Offline: /test landet auf der Startseite unter /');
   await page.goto(URL, { waitUntil: 'networkidle0' });
   await load(page, JPEG);
   ok(true, 'Offline: JPEG bis „bereit“');

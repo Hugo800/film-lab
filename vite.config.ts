@@ -38,7 +38,8 @@ export default defineConfig({
         short_name: 'Film Lab',
         description: 'Filmlooks von Fujifilm, Leica und Kodak für deine Fotos – im Browser',
         lang: 'de',
-        start_url: './',
+        // App auf dem Homescreen: schlichte Upload-Seite statt Startseite.
+        start_url: './app',
         scope: './',
         display: 'standalone',
         orientation: 'any',

@@ -5,7 +5,7 @@ import { useStore } from './store';
 
 const HINT_KEY = 'filmlab.installhinweis';
 
-function isStandalone(): boolean {
+export function isStandalone(): boolean {
   if ((navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
   return ['standalone', 'fullscreen', 'minimal-ui'].some((m) => matchMedia(`(display-mode: ${m})`).matches);
 }

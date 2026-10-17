@@ -4,7 +4,9 @@ import './index.css';
 import App from './ui/App';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { initPersist } from './ui/persist';
+import { adresseBereinigen } from './ui/route';
 
+adresseBereinigen();
 initPersist();
 
 createRoot(document.getElementById('root')!).render(
