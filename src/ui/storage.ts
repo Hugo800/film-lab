@@ -19,6 +19,7 @@ export interface StoredLut {
 // v2: LookParams der Fuji-Parameter. Daten unter v1 haben ein anderes Format und werden ignoriert.
 const PRESET_KEY = 'filmlab.presets.v2';
 const USE_OFFICIAL_KEY = 'filmlab.originale.verwenden';
+const OBJEKTIV_KEY = 'filmlab.objektivkorrektur';
 const DB_NAME = 'filmlab';
 const STORE = 'luts';
 const OFFICIAL_STORE = 'official';
@@ -135,5 +136,20 @@ export function loadUseOfficial(): boolean {
 export function saveUseOfficial(on: boolean) {
   try {
     localStorage.setItem(USE_OFFICIAL_KEY, on ? '1' : '0');
+  } catch {}
+}
+
+/** Objektivkorrektur beim RAW-Import; ohne gespeicherte Wahl aus. */
+export function loadObjektivkorrektur(): boolean {
+  try {
+    return localStorage.getItem(OBJEKTIV_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveObjektivkorrektur(on: boolean) {
+  try {
+    localStorage.setItem(OBJEKTIV_KEY, on ? '1' : '0');
   } catch {}
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectiveParams, type EffectiveParams } from '../engine/plan';
 import { LOOKS } from '../looks';
 import { DEFAULT_PARAMS } from '../types';
@@ -12,6 +12,33 @@ const looks = () => useStore.getState().photos.map((p) => p.settings.lookId);
 beforeEach(() => {
   useStore.setState({ photos: [], activeId: null, notice: null, undoState: null });
   useStore.getState().addFiles([file('a.jpg'), file('b.jpg')]);
+});
+
+describe('Objektivkorrektur', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('ist anfangs aus; der Schalter gilt sofort und wird gemerkt', () => {
+    expect(useStore.getState().objektivkorrektur).toBe(false);
+    const mem = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) });
+    useStore.getState().setObjektivkorrektur(true);
+    expect(useStore.getState().objektivkorrektur).toBe(true);
+    expect(mem.get('filmlab.objektivkorrektur')).toBe('1');
+    useStore.getState().setObjektivkorrektur(false);
+    expect(useStore.getState().objektivkorrektur).toBe(false);
+    expect(mem.get('filmlab.objektivkorrektur')).toBe('0');
+  });
+
+  it('verwirft beim Neu-Entwickeln nur die Kacheln dieses Fotos', () => {
+    const [a, b] = useStore.getState().photos.map((p) => p.id);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    useStore.setState({ lookThumbs: { [`${a}|x`]: 'blob:a-x', [`${a}|y`]: '', [`${b}|x`]: 'blob:b-x' } });
+    useStore.getState().dropLookThumbs(a);
+    expect(useStore.getState().lookThumbs).toEqual({ [`${b}|x`]: 'blob:b-x' });
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:a-x');
+    revoke.mockRestore();
+  });
 });
 
 describe('Rückgängig', () => {

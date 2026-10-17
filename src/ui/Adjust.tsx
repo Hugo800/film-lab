@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Bookmark, Dices, RotateCcw } from 'lucide-react';
+import { isRawFile } from '../io';
 import type { Level } from '../types';
 import { fmtPercent, fmtSigned, fmtThirds } from './format';
 import { builtinEntries, defaultsFor, isMonochrome, NONE_ENTRY, NONE_ID } from './lookRegistry';
@@ -118,6 +119,8 @@ export function Adjust() {
   const resetAll = useStore((s) => s.resetAll);
   const rollLeak = useStore((s) => s.rollLeak);
   const customLuts = useStore((s) => s.customLuts);
+  const objektivkorrektur = useStore((s) => s.objektivkorrektur);
+  const setObjektivkorrektur = useStore((s) => s.setObjektivkorrektur);
   const [saving, setSaving] = useState(false);
   const entries = useMemo(() => builtinEntries(), []);
   if (!photo) return null;
@@ -177,6 +180,26 @@ export function Adjust() {
           </Button>
         )}
       </div>
+
+      {isRawFile(photo.file) && (
+        <>
+          <Heading>Objektiv</Heading>
+          <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 py-1">
+            <span className="text-sm text-fg">
+              Objektivkorrektur
+              <span className="block text-xs text-dim">Verzeichnung und Farbsäume wie die Kamera ausgleichen (Sony-ARW). Gilt für alle RAW-Fotos.</span>
+            </span>
+            <input
+              id="objektivkorrektur"
+              type="checkbox"
+              role="switch"
+              checked={objektivkorrektur}
+              onChange={(e) => setObjektivkorrektur(e.target.checked)}
+              className="size-6 shrink-0 accent-[var(--color-accent)]"
+            />
+          </label>
+        </>
+      )}
 
       <Heading>Licht</Heading>
       {renderSlider(EXPOSURE)}

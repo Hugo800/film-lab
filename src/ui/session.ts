@@ -1,7 +1,7 @@
 // Verbindet Engine und das eine aktive Foto. Nur dieses Foto liegt in voller Auflösung
 // im Speicher; beim Wechsel wird das ImageBitmap des alten Fotos freigegeben.
 import { createEngine } from '../engine';
-import { loadFile } from '../io';
+import { isRawFile, loadFile } from '../io';
 import type { Engine, SourceImage } from '../types';
 import { useStore, type Photo } from './store';
 
@@ -9,7 +9,17 @@ let engine: Engine | null = null;
 let source: SourceImage | null = null;
 let sourcePhotoId: string | null = null;
 let pendingId: string | null = null;
+/** Mit oder ohne Objektivkorrektur entwickelt: die geladene Quelle bzw. der laufende Ladevorgang. */
+let sourceKorrektur = false;
+let pendingKorrektur = false;
+/** Je Foto die Korrektur seiner zuletzt geladenen Quelle – daraus stammen seine Look-Kacheln. */
+const thumbKorrektur = new Map<string, boolean>();
 let token = 0;
+
+/** Objektivkorrektur für dieses Foto: nur RAW, nach dem Schalter unter „Anpassen“. */
+function korrekturFuer(photo: Photo): boolean {
+  return isRawFile(photo.file) && useStore.getState().objektivkorrektur;
+}
 
 export function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -77,8 +87,9 @@ export async function openPhoto(photo: Photo | null) {
     set({ source: { status: 'leer', photoId: null, width: 0, height: 0, version: useStore.getState().source.version } });
     return;
   }
-  if (photo.id === pendingId) return;
-  if (photo.id === sourcePhotoId && source) {
+  const korrektur = korrekturFuer(photo);
+  if (photo.id === pendingId && korrektur === pendingKorrektur) return;
+  if (photo.id === sourcePhotoId && source && korrektur === sourceKorrektur) {
     // Zurück zum bereits geladenen Foto (z. B. nach einem Ladefehler beim Nachbarn).
     token++;
     pendingId = null;
@@ -90,11 +101,12 @@ export async function openPhoto(photo: Photo | null) {
   }
   const mine = ++token;
   pendingId = photo.id;
+  pendingKorrektur = korrektur;
   const prev = useStore.getState().source;
   set({ source: { ...prev, status: 'laden', photoId: photo.id, error: undefined } });
   let loaded: SourceImage;
   try {
-    loaded = await loadFile(photo.file);
+    loaded = await loadFile(photo.file, { objektivkorrektur: korrektur });
   } catch (err) {
     if (mine !== token) return;
     pendingId = null;
@@ -111,7 +123,12 @@ export async function openPhoto(photo: Photo | null) {
   const old = source;
   source = loaded;
   sourcePhotoId = photo.id;
+  sourceKorrektur = korrektur;
   pendingId = null;
+  // Schalter umgelegt: Kacheln aus der anders entwickelten Quelle verwerfen (auch solche, die noch bis zum
+  // Neuladen aus der alten entstanden sind).
+  if (thumbKorrektur.has(photo.id) && thumbKorrektur.get(photo.id) !== korrektur) useStore.getState().dropLookThumbs(photo.id);
+  thumbKorrektur.set(photo.id, korrektur);
   const ok = feedEngine();
   // Erst nach setSource schließen: die Engine hat dann das neue Bild und braucht das alte nicht mehr.
   closeSource(old);

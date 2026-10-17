@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { type LookParams, type Lut3D } from '../types';
 import { builtinEntries, CATEGORY_ORDER, defaultsFor, NONE_ID, recipeDefaultsOf, registerCustomLut, setOfficialLuts, setOfficialOn, unregisterCustomLut } from './lookRegistry';
-import { clearOfficialLuts, deleteStoredLut, savePresets, saveStoredLut, saveUseOfficial, type UserPreset } from './storage';
+import { clearOfficialLuts, deleteStoredLut, loadObjektivkorrektur, saveObjektivkorrektur, savePresets, saveStoredLut, saveUseOfficial, type UserPreset } from './storage';
 
 export interface PhotoSettings {
   lookId: string;
@@ -115,6 +115,8 @@ interface State {
   /** Schlüssel der geladenen Fujifilm-Original-LUTs. */
   officialKeys: string[];
   useOfficial: boolean;
+  /** RAW-Fotos mit Objektivkorrektur entwickeln (Verzeichnung, Farbsäume); gilt für alle Fotos, gemerkt. */
+  objektivkorrektur: boolean;
   /** Zählt hoch, wenn sich die LUTs hinter den Looks ändern (Originale an/aus/neu): Vorschau und Kacheln rechnen neu. */
   lutEpoch: number;
   /** Look-Kacheln: Schlüssel `${photoId}|${entryId}` → Object-URL ('' = fehlgeschlagen). */
@@ -150,7 +152,10 @@ interface State {
   setOfficialLuts(luts: Map<string, Lut3D>, use: boolean): void;
   setUseOfficial(use: boolean): void;
   removeOfficialLuts(): void;
+  setObjektivkorrektur(on: boolean): void;
   setLookThumb(key: string, url: string): void;
+  /** Kacheln eines Fotos verwerfen (die Quelle wurde anders entwickelt); sie werden neu gerechnet. */
+  dropLookThumbs(photoId: string): void;
   notify(text: string, kind?: Notice['kind'], action?: NoticeAction): void;
   dismissNotice(): void;
   patch(partial: Partial<State>): void;
@@ -207,6 +212,7 @@ export const useStore = create<State>()((set, get) => ({
   presets: [],
   officialKeys: [],
   useOfficial: false,
+  objektivkorrektur: loadObjektivkorrektur(),
   lutEpoch: 0,
   lookThumbs: {},
   notice: null,
@@ -433,6 +439,11 @@ export const useStore = create<State>()((set, get) => ({
     refreshThumbs();
   },
 
+  setObjektivkorrektur(on) {
+    saveObjektivkorrektur(on);
+    set({ objektivkorrektur: on });
+  },
+
   setLookThumb(key, url) {
     const photoId = key.split('|')[0];
     if (!get().photos.some((p) => p.id === photoId)) {
@@ -440,6 +451,16 @@ export const useStore = create<State>()((set, get) => ({
       return;
     }
     set((s) => ({ lookThumbs: { ...s.lookThumbs, [key]: url } }));
+  },
+
+  dropLookThumbs(photoId) {
+    const kept: Record<string, string> = {};
+    for (const [key, url] of Object.entries(get().lookThumbs)) {
+      if (key.startsWith(`${photoId}|`)) {
+        if (url) URL.revokeObjectURL(url);
+      } else kept[key] = url;
+    }
+    set({ lookThumbs: kept });
   },
 
   notify(text, kind = 'info', action) {

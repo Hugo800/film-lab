@@ -28,6 +28,7 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
   const status = useStore((s) => s.source.status);
   const compare = useStore((s) => s.compare);
   const zoom = useStore((s) => s.zoom);
+  const objektivkorrektur = useStore((s) => s.objektivkorrektur);
   const patch = useStore((s) => s.patch);
   const [help, setHelp] = useState(false);
   const ready = status === 'bereit';
@@ -35,8 +36,9 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
   useThumbnails();
 
   useEffect(() => {
+    // Auch beim Umlegen der Objektivkorrektur: ein RAW wird dann neu entwickelt.
     void openPhoto(activePhoto(useStore.getState()) ?? null);
-  }, [activeId]);
+  }, [activeId, objektivkorrektur]);
 
   // Beim Verlassen (letztes Foto entfernt) die Pixel des Fotos freigeben.
   useEffect(() => () => void openPhoto(null), []);

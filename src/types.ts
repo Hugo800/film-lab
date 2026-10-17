@@ -10,7 +10,7 @@
 //           buildOfficialLuts(files: {name: string; data: Uint8Array}[], onProgress?): Promise<Map<string, Lut3D>>
 //             (offizielle Fujifilm-F-Log2-LUTs, vom Nutzer selbst geladen → sRGB-LUTs „Provia-relativ“,
 //              Schlüssel = FilmLook.officialKey; rechnet in einem Worker; nichts davon wird mitgeliefert)
-//   io:     loadFile(file: File): Promise<SourceImage>          (JPEG/PNG/HEIC/ARW, ARW per src/io/raw)
+//   io:     loadFile(file: File, {objektivkorrektur?}): Promise<SourceImage>  (JPEG/PNG/HEIC/ARW, ARW per src/io/raw)
 //           encodeJpeg(rgba: Uint8Array, width, height, quality): Promise<Uint8Array>
 //           withMetadata(jpeg: Uint8Array, meta: SourceMetadata, size: {width, height}): Uint8Array
 //             (ersetzt APPn-Segmente des frisch kodierten JPEGs durch EXIF/ICC/XMP der Quelle,

@@ -93,7 +93,7 @@ export async function startExport(scope: ExportScope) {
     const own = !src;
     try {
       if (!engine) throw new Error('Die Bildverarbeitung ist nicht verfügbar.');
-      src ??= await loadFile(photo.file);
+      src ??= await loadFile(photo.file, { objektivkorrektur: useStore.getState().objektivkorrektur });
       const blob = await engine.exportJpeg(src, lutFor(photo.settings.lookId), withLookDefaults(photo.settings.lookId, photo.settings.params, photo.settings.recipeDefaults), {
         quality: QUALITY,
         signal,

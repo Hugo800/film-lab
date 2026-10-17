@@ -98,6 +98,8 @@ try {
     const worker = [];
     const merken = (w) => worker.push(w.url());
     page.on('workercreated', merken);
+    // Ab Werk aus: wie nach dem Einschalten unter „Anpassen“ (gemerkt), dann neu laden.
+    await page.evaluate(() => localStorage.setItem('filmlab.objektivkorrektur', '1'));
     await page.reload({ waitUntil: 'networkidle0' });
     await load(page, ARW_KORREKTUR);
     page.off('workercreated', merken);

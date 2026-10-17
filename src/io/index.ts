@@ -59,11 +59,14 @@ function describeDecodeError(format: ImageFormat, e: unknown): Error {
   return new Error(text, { cause: e });
 }
 
-/** Lädt JPEG/PNG/HEIC/WebP (und RAW über ./raw) als aufrecht gedrehte Quelle. */
-export async function loadFile(file: File): Promise<SourceImage> {
+/**
+ * Lädt JPEG/PNG/HEIC/WebP (und RAW über ./raw) als aufrecht gedrehte Quelle. `objektivkorrektur` gilt nur für RAW
+ * (Sony-ARW: Verzeichnung und Farbsäume wie in der Kamera); ohne Angabe bleibt sie aus.
+ */
+export async function loadFile(file: File, { objektivkorrektur = false }: { objektivkorrektur?: boolean } = {}): Promise<SourceImage> {
   if (isRawFile(file)) {
     const { decodeRaw } = await import('./raw');
-    return decodeRaw(file);
+    return decodeRaw(file, { objektivkorrektur });
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   const format = detectFormat(bytes);

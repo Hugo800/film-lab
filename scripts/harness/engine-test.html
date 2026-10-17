@@ -37,7 +37,7 @@
     // ARW: Entwicklung der App (io.loadFile, mit Objektivkorrektur), Pixel als RGBA-Puffer.
     if (/\.arw$/i.test(name)) {
       const buf = await (await fetch('/testbilder/' + name)).arrayBuffer();
-      return (sources[key] = await loadFile(new File([buf], name)));
+      return (sources[key] = await loadFile(new File([buf], name), { objektivkorrektur: true }));
     }
     const blob = await (await fetch('/testbilder/' + name)).blob();
     const bmp = await createImageBitmap(blob, {
