@@ -68,6 +68,13 @@ try {
   ok(manifest.icons.some((i) => i.purpose === 'maskable') && manifest.display === 'standalone', 'Manifest: maskable-Symbol, standalone');
   ok(manifest.start_url === './app' && manifest.id === './', 'Manifest: App startet unter /app, Kennung unverändert', `${manifest.start_url} / ${manifest.id}`);
 
+  // Lizenztexte: Die Startseite verlinkt sie, und der Service Worker ersetzt die Datei nicht durch die Seite.
+  ok(await page.evaluate(() => [...document.querySelectorAll('footer a')].some((a) => a.getAttribute('href') === '/licenses.txt')), 'Startseite verlinkt /licenses.txt');
+  await page.goto(URL + 'licenses.txt', { waitUntil: 'networkidle0' });
+  // Nur der ASCII-Teil: vite preview schickt keinen Zeichensatz mit (nginx schon, deploy/nginx.conf).
+  ok(await page.evaluate(() => location.pathname === '/licenses.txt' && document.body.innerText.includes('Lizenzen der ausgelieferten Software')), 'Unter dem Service Worker: /licenses.txt zeigt die Lizenztexte');
+  await page.goto(URL, { waitUntil: 'networkidle0' });
+
   // 3 Offline
   await page.setOfflineMode(true);
   await page.reload({ waitUntil: 'networkidle0' });

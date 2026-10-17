@@ -179,6 +179,11 @@ export function StartView({ onPick }: { onPick: () => void }) {
           <div className={`${SPALTE} flex flex-col gap-1.5 border-t border-line pt-8 font-mono text-[11px] leading-relaxed text-dim`}>
             <p>{TRADEMARK_NOTE}</p>
             <p>Keine Cookies, kein Tracking. Rezepte und LUTs bleiben im Speicher dieses Browsers.</p>
+            <p>
+              <a href={`${BASE}licenses.txt`} className="underline decoration-line underline-offset-4 transition-colors hover:text-fg">
+                Lizenzen der verwendeten Software
+              </a>
+            </p>
           </div>
         </footer>
 

@@ -31,6 +31,9 @@ export default defineConfig({
         // libraw.wasm hat 1,4 MB, der Rest bleibt darunter.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
+        // Dateien mit Endung (z. B. /licenses.txt) nicht durch die Seite ersetzen: Sonst liefert der Service Worker für
+        // jeden Aufruf außerhalb des Precache index.html, und die Startseite übernimmt die Adresse.
+        navigateFallbackDenylist: [/\/[^/?]+\.[^/?]+$/],
       },
       manifest: {
         id: './',
