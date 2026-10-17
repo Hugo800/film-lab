@@ -9,8 +9,8 @@
 //    die Mittelwerte übereinstimmen; Messwerte im Protokoll).
 // 2. Daraus: Seitenfassung (lange Kante 2048, im Precache der App), Editor-Fassung gross/ (lange Kante 4000, nur
 //    beim Öffnen im Editor geladen) und die Mini-Vorschau der Foto-Wahl (mini/, 168×132 = 56×44 bei @3).
-// 3. Mit der Engine der App: Titelbild (Klippen quer, halb Original, halb Velvia) und Lupe (Klippen mit Portra 400,
-//    echter 100-%-Ausschnitt aus der vollen RAW-Auflösung).
+// 3. Mit der Engine der App: Titelbilder (Klippen quer und hoch, halb Original, halb Velvia) und Lupe (Klippen mit
+//    Portra 400, echter 100-%-Ausschnitt aus der vollen RAW-Auflösung).
 // Kodiert wird mit mozjpeg wie der Export der App (encodeJpeg); EXIF, GPS, XMP und ICC entfallen dabei. Am Ende wird
 // geprüft, dass kein APPn-Segment außer JFIF bleibt. Dateien aus früheren Läufen, die nicht mehr entstehen, werden
 // gelöscht. Nur diese Fotos dürfen öffentlich werden; andere Testbilder hier nie eintragen.
@@ -28,8 +28,8 @@ const PHOTOS = [
   { name: 'sonnenuntergang-hoch', src: 'testbilder/IMG_0366.JPEG', pos: [0.5, 0.4] },
   { name: 'nachts-quer', src: 'testbilder/IMG_0558.JPEG', pos: [0.3, 0.5] },
   { name: 'nachts-hoch', src: 'testbilder/IMG_0562.JPEG', pos: [0.5, 0.7] },
-  { name: 'garten-quer', src: 'testbilder/DSC03982.JPEG', pos: [0.42, 0.5] },
-  { name: 'garten-hoch', src: 'testbilder/IMG_0148.JPEG', pos: [0.5, 0.7], editor: 2048 },
+  // Platz für ein viertes Foto (quer und hoch, dazu BEISPIELE in werkstatt.ts). Früher „garten“: quer der Hund
+  // (DSC03982.JPEG, nicht mehr gewünscht), hoch die Straße (IMG_0148.JPEG mit editor: 2048, Kennzeichen ab ~2500 px lesbar).
 ];
 /** Lange Kante: Seite wie GROSS in werkstatt.ts, Editor-Fassung; kleinere Quellen bleiben in voller Größe. */
 const SEITE = 2048;
@@ -39,7 +39,7 @@ const MINI = [168, 132];
 const QUALITAET = 88;
 /** Obergrenzen je Datei: nur gegen Ausreißer, die Qualität bleibt fest. */
 const GRENZE = { seite: 1100 * 1024, gross: 4 * 1024 * 1024, mini: 12 * 1024, titel: 1100 * 1024, lupe: 700 * 1024 };
-/** Titelbild: Look rechts vom Teiler; Lupe: Look und Ausschnitt (x, y, w, h in Pixeln der RAW-Entwicklung, 6000×4000). */
+/** Titelbilder: Look rechts vom Teiler; Lupe: Look und Ausschnitt (x, y, w, h in Pixeln der RAW-Entwicklung, 6000×4000). */
 const TITEL_LOOK = 'velvia';
 const LUPE = { look: 'kodak-portra-400', rect: [2200, 2910, 1024, 640] };
 
@@ -205,6 +205,7 @@ try {
         gm.imageSmoothingQuality = 'high';
         gm.drawImage(seite, (mw - seite.width * s) * p.pos[0], (mh - seite.height * s) * p.pos[1], seite.width * s, seite.height * s);
         if (p.name === 'klippen-quer') window.__titelQuelle = seite;
+        if (p.name === 'klippen-hoch') window.__titelHochQuelle = seite;
         return { quelle, angleich, seite: await H.kodieren(seite, q), gross: await H.kodieren(gross, q), mini: await H.kodieren(mini, 80) };
       },
       p,
@@ -226,44 +227,49 @@ try {
 
   // Engine der App, ohne Werkstatt: Titel aus den unkomprimierten Pixeln der Seitenfassung, Lupe aus der vollen
   // RAW-Entwicklung (100 %: ein Quellpixel je Bildpixel, Korn in Originalgröße).
-  const [titel, lupe] = await page.evaluate(
+  const [titel, titelHoch, lupe] = await page.evaluate(
     async (titelLook, lupe, q) => {
       const H = window.H;
       const { createEngine } = await import('/src/engine/index.ts');
       const { defaultsFor, lutFor } = await import('/src/ui/lookRegistry.ts');
-      const seite = window.__titelQuelle;
-      const W = seite.width;
-      const Hh = seite.height;
-      const px = new OffscreenCanvas(W, Hh);
-      px.getContext('2d').drawImage(seite, 0, 0);
-      const d = px.getContext('2d').getImageData(0, 0, W, Hh).data;
-      const quelle = { id: 'titel', fileName: 'klippen-quer.jpg', width: W, height: Hh, colorSpace: 'srgb', pixels: { data: new Uint8Array(d.buffer), width: W, height: Hh }, meta: {}, isRaw: false };
       const engine = createEngine(document.createElement('canvas'));
-      engine.setSource(quelle);
-      const look = await engine.renderThumbnail(lutFor(titelLook), defaultsFor(titelLook), Math.max(W, Hh));
 
       // Titel: links Original, rechts Look, dazwischen eine feine helle Linie mit weichem Schatten.
-      const c = new OffscreenCanvas(W, Hh);
-      const g = c.getContext('2d');
-      g.drawImage(seite, 0, 0);
-      const mid = Math.round(W / 2);
-      g.drawImage(look, mid, 0, W - mid, Hh, mid, 0, W - mid, Hh);
-      g.shadowColor = 'rgba(0,0,0,0.5)';
-      g.shadowBlur = 12;
-      g.fillStyle = 'rgba(255,255,255,0.92)';
-      g.fillRect(mid - 1, 0, 2, Hh);
+      async function titelBild(seite, fileName) {
+        const W = seite.width;
+        const Hh = seite.height;
+        const px = new OffscreenCanvas(W, Hh);
+        px.getContext('2d').drawImage(seite, 0, 0);
+        const d = px.getContext('2d').getImageData(0, 0, W, Hh).data;
+        const quelle = { id: fileName, fileName, width: W, height: Hh, colorSpace: 'srgb', pixels: { data: new Uint8Array(d.buffer), width: W, height: Hh }, meta: {}, isRaw: false };
+        engine.setSource(quelle);
+        const look = await engine.renderThumbnail(lutFor(titelLook), defaultsFor(titelLook), Math.max(W, Hh));
+        const c = new OffscreenCanvas(W, Hh);
+        const g = c.getContext('2d');
+        g.drawImage(seite, 0, 0);
+        const mid = Math.round(W / 2);
+        g.drawImage(look, mid, 0, W - mid, Hh, mid, 0, W - mid, Hh);
+        g.shadowColor = 'rgba(0,0,0,0.5)';
+        g.shadowBlur = 12;
+        g.fillStyle = 'rgba(255,255,255,0.92)';
+        g.fillRect(mid - 1, 0, 2, Hh);
+        return H.kodieren(c, q);
+      }
+      const quer = await titelBild(window.__titelQuelle, 'klippen-quer.jpg');
+      const hoch = await titelBild(window.__titelHochQuelle, 'klippen-hoch.jpg');
 
       const [x, y, lw, lh] = lupe.rect;
       const src = window.__lupeQuelle;
       const bmp = await engine.renderRegion(src, lutFor(lupe.look), defaultsFor(lupe.look), { x0: x, y0: y, x1: x + lw, y1: y + lh }, lw, lh);
       engine.dispose();
-      return [await H.kodieren(c, q), await H.kodieren(bmp, 90)];
+      return [quer, hoch, await H.kodieren(bmp, 90)];
     },
     TITEL_LOOK,
     LUPE,
     QUALITAET,
   );
   save('titel.jpg', titel, GRENZE.titel);
+  save('titel-hoch.jpg', titelHoch, GRENZE.titel);
   save('lupe.jpg', lupe, GRENZE.lupe);
 
   // Was nicht mehr entsteht (frühere Fotos), fällt weg.

@@ -4,32 +4,81 @@ import { beispielLadenAbo, beispielLadezustand } from './beispielLaden';
 import { useFassung, useInView } from './hooks';
 import { BEISPIELE, foto, miniUrl, type BeispielId } from './werkstatt';
 
-// Breite der Bühnen von Vergleich und Look-Rad aus der Höhe (ab sm): Kopf (~10 rem), Abstände und die Bedienung über
+// Breite der Bühne des Look-Rads aus der Höhe (ab sm): Kopf (~10 rem), Abstände und die Bedienung über
 // und unter dem Bild (~12 rem) bleiben neben einem Bild im Format 3:2 im Bild.
 export const BREITE = 'mx-auto w-full max-w-5xl sm:w-[min(100%,max(28rem,calc((100svh-22rem)*1.5)))]';
 
-/** Abschnittskopf: kleine Zeile in Akzentfarbe, große Überschrift, Einleitung; zentriert oder linksbündig. */
+/** Breite aller Abschnitte der Startseite. */
+export const SPALTE = 'mx-auto w-full max-w-6xl';
+
+/** Kopfzeile eines Abschnitts wie der Rand eines Negativs: Nummer, Name, durchgehende Linie, rechts eine Angabe. */
+export function Filmrand({ nr, name, rechts }: { nr: string; name: string; rechts?: ReactNode }) {
+  return (
+    <p className="flex items-center gap-3 font-mono text-[11px] tracking-[0.18em] text-dim uppercase">
+      <span className="text-accent">▸ {nr}</span>
+      <span>{name}</span>
+      <span aria-hidden className="h-px flex-1 bg-line" />
+      {rechts && <span className="tabular-nums">{rechts}</span>}
+    </p>
+  );
+}
+
+/** Abschnittskopf: Filmrand über die ganze Breite, große Überschrift, Einleitung; linksbündig oder mittig (über einer Bühne). */
 export function Kopf({
   id,
-  eyebrow,
+  nr,
+  name,
+  rechts,
   title,
-  align = 'center',
+  mittig = false,
+  className = '',
   children,
 }: {
   id: string;
-  eyebrow: string;
+  nr: string;
+  name: string;
+  rechts?: ReactNode;
   title: ReactNode;
-  align?: 'center' | 'left';
+  mittig?: boolean;
+  className?: string;
   children?: ReactNode;
 }) {
   return (
-    <Einblenden className={align === 'left' ? 'max-w-2xl' : 'mx-auto max-w-2xl text-center'}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-accent">{eyebrow}</p>
-      <h2 id={id} className="mt-3 text-[30px] leading-[1.1] font-medium tracking-[-0.025em] text-balance sm:text-4xl lg:text-5xl">
-        {title}
-      </h2>
-      {children && <p className="mt-4 text-[15px] leading-relaxed text-pretty text-dim sm:text-base">{children}</p>}
+    <Einblenden className={className}>
+      <Filmrand nr={nr} name={name} rechts={rechts} />
+      <div className={mittig ? 'mx-auto max-w-3xl text-center' : ''}>
+        <h2 id={id} className="mt-5 text-[32px] leading-[1.05] font-medium tracking-[-0.03em] text-balance sm:mt-7 sm:text-5xl">
+          {title}
+        </h2>
+        {children && <p className={`mt-4 text-[15px] leading-relaxed text-pretty text-dim sm:text-base ${mittig ? '' : 'max-w-2xl'}`}>{children}</p>}
+      </div>
     </Einblenden>
+  );
+}
+
+/**
+ * Kleinbildfilm als Rahmen: Perforation und Randbeschriftung an den Längsseiten (index.css), quer oder am Handy
+ * hochkant. Das Bild (children) füllt das Feld; Größe und Format setzt `bild`.
+ */
+export function Filmstreifen({
+  bild,
+  oben,
+  unten,
+  className = '',
+  children,
+}: {
+  bild: string;
+  oben: ReactNode;
+  unten: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`filmstreifen ${className}`}>
+      <span aria-hidden className="filmstreifen-rand oben">{oben}</span>
+      <div className={`filmstreifen-bild ${bild}`}>{children}</div>
+      <span aria-hidden className="filmstreifen-rand unten">{unten}</span>
+    </div>
   );
 }
 

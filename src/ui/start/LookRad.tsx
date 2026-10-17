@@ -8,7 +8,7 @@ import { bahnPunkt, geometrie, hub, SICHTBAR, type Geometrie } from './bahn';
 import { schachtelFuer } from './filmschachteln';
 import { useFoto, useInView, useRendered, WerkstattContext } from './hooks';
 import { Schachtel } from './Schachtel';
-import { BREITE, FotoWahl, Kopf } from './teile';
+import { BREITE, FotoWahl, Kopf, SPALTE } from './teile';
 import { angaben, beispielUrl, GROSS, miniUrl, type BeispielId, type Foto } from './werkstatt';
 
 const MARKEN: LookCategory[] = ['fujifilm', 'leica', 'kodak', 'ricoh'];
@@ -125,7 +125,9 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   const entry = liste[index];
 
   // `near`: jetzt in Sichtweite (nur dann wird gerechnet); `gesehen`: schon einmal, dann bleiben die Bilder stehen.
-  const [sectionRef, near] = useInView<HTMLElement>('200px 0px', false);
+  // Unten erst, wenn der Abschnitt im Bild ist: Er beginnt direkt unter dem ersten Bildschirm, die Engine soll erst beim
+  // Scrollen starten. Die Kachel liegt noch unter dem Kopf, rechnet also weiterhin vor, bevor man sie sieht.
+  const [sectionRef, near] = useInView<HTMLElement>('200px 0px -40px 0px', false);
   const [gesehen, setGesehen] = useState(false);
   if (near && !gesehen) setGesehen(true);
   // Kachel; zum Einrasten außerdem die Bühne (Schalter, Kachel, Fotowahl) und der ganze Inhalt samt Überschrift.
@@ -437,15 +439,18 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   return (
     <section ref={sectionRef} id="alle-looks" aria-labelledby="rad-titel" className="px-5 py-16 sm:py-24">
       <div ref={inhaltRef}>
-        <Kopf id="rad-titel" eyebrow={`${total} Looks · live gerechnet`} title="Alle Looks im Überblick.">
-          <span className="pointer-coarse:hidden">Mausrad oder ↑ ↓ dreht das Rad, ein Klick holt eine Schachtel nach vorn. Bild gedrückt halten zeigt das Original.</span>
-          <span className="hidden pointer-coarse:inline">Auf den Schachteln wischen dreht das Rad. Bild gedrückt halten zeigt das Original.</span>
+        <Kopf className={SPALTE} mittig id="rad-titel" nr="02" name="Look-Rad" rechts={`${total} Looks`} title="Das Look-Rad.">
+          <span className="pointer-coarse:hidden">
+            Live gerechnet, mit derselben Engine wie im Editor. Mausrad oder ↑ ↓ dreht das Rad, ein Klick holt eine Schachtel nach
+            vorn. Bild gedrückt halten zeigt das Original.
+          </span>
+          <span className="hidden pointer-coarse:inline">Live gerechnet wie im Editor. Wischen dreht das Rad, Gedrückthalten zeigt das Original.</span>
         </Kopf>
 
         {/* Bühne: Marke über, Fotowahl unter der Kachel; am Handy quer (wenig Höhe) beide in einer Zeile darüber. */}
         <div
           ref={buehneRef}
-          className={`mt-6 sm:mt-10 ${BREITE} [@media(max-height:520px)]:grid [@media(max-height:520px)]:w-[min(100%,calc((100svh-6rem)*2))] [@media(max-height:520px)]:grid-cols-[auto_auto] [@media(max-height:520px)]:items-center [@media(max-height:520px)]:justify-between`}
+          className={`mt-6 sm:mt-8 ${BREITE} [@media(max-height:520px)]:grid [@media(max-height:520px)]:w-[min(100%,calc((100svh-6rem)*2))] [@media(max-height:520px)]:grid-cols-[auto_auto] [@media(max-height:520px)]:items-center [@media(max-height:520px)]:justify-between`}
         >
           <div role="tablist" aria-label="Marke" className="mx-auto flex w-full rounded-full border border-line bg-panel p-1 sm:w-fit [@media(max-height:520px)]:mx-0">
             {MARKEN.map((m) => {

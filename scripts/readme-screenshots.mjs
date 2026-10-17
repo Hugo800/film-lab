@@ -8,7 +8,7 @@ import { launch, startDevServer } from './lib/browser.mjs';
 
 const OUT = 'docs/screenshots';
 const MAX_BYTES = 300 * 1024;
-const FOTOS = ['klippen', 'sonnenuntergang', 'nachts', 'garten'];
+const FOTOS = ['klippen', 'sonnenuntergang', 'nachts'];
 const fotos = (fassung) => FOTOS.map((n) => resolve(`public/beispiele/gross/${n}-${fassung}.jpg`));
 const phone = { width: 393, height: 852, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const pc = { width: 1440, height: 900, deviceScaleFactor: 1 };
@@ -128,14 +128,14 @@ try {
       }
 
       if (todo.includes('rezept')) {
-        await s.foto(FOTOS.indexOf('garten'));
+        await s.foto(FOTOS.indexOf('sonnenuntergang'));
         await s.rezeptEintragen();
         await shot(page, `rezept-${kind}`);
         // Anwenden: danach zeigt „Anpassen“ die Werte des Rezepts.
         await s.clickText('[role=dialog] button', 'Anwenden');
         await sleep(2000);
       } else if (todo.includes('einstellungen')) {
-        await s.foto(FOTOS.indexOf('garten'));
+        await s.foto(FOTOS.indexOf('sonnenuntergang'));
         await s.rezeptEintragen();
         await s.clickText('[role=dialog] button', 'Anwenden');
         await sleep(2000);

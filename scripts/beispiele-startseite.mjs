@@ -1,14 +1,16 @@
 // Startseite prüfen: node scripts/beispiele-startseite.mjs [393x852 1440x900 …]  (Port TEST_PORT, Vorgabe 5190)
 // Je Fenstergröße Bildschirmfotos (erster Bildschirm, Abschnitte, ganze Seite) nach test-output/startseite/ und
-// Prüfungen: kein waagerechter Überlauf, keine Engine vor dem Scrollen, Vergleich/Kacheln live gerechnet,
-// Teiler ziehen und per Tastatur, Look- und Fotowechsel, Fassung der Fotos (hochkant/quer); bei der ersten Größe
-// zusätzlich Beispielfoto → Editor (lädt die große Fassung aus beispiele/gross/).
+// Prüfungen: kein waagerechter Überlauf, keine Engine vor dem Scrollen, Titelbild in der Fassung des Bildschirms,
+// Knöpfe im ersten Bildschirm, Look-Rad und Rezept live gerechnet, Fassung der Fotos (hochkant/quer), „Jetzt
+// hinzufügen“ öffnet die Anleitung (Handy mit iPhone-Kennung: Safari-Schritte); bei der ersten Größe zusätzlich
+// Beispielfoto → Editor (lädt die große Fassung aus beispiele/gross/).
 import { mkdirSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
 
 const OUT = 'test-output/startseite';
 const OUT_RAD = 'test-output/look-rad';
 const phone = (width, height, dpr) => ({ width, height, deviceScaleFactor: dpr, isMobile: true, hasTouch: true });
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
 const SIZES = {
   '393x852': phone(393, 852, 3),
   '375x667': phone(375, 667, 2),
@@ -99,16 +101,16 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await ausrichten(page);
   const s0 = await radZustand(page);
   ok(s0.ganz && s0.n === 20, `${name}: Look-Kachel ganz im Bild, Fujifilm mit ${s0.n} Schachteln (${s0.name})`);
-  // Kachel statt Vollbild: festes Format, höhenbegrenzt, mit Überschrift im Bild; Breite wie der Vergleich bzw. die Spalte.
+  // Kachel statt Vollbild: festes Format, höhenbegrenzt, mit Kopf (ab dem Filmrand) im Bild; Breite wie die Bühne.
   const masse = await page.evaluate(() => {
-    const k = document.getElementById('rad-kachel').getBoundingClientRect();
-    const kicker = document.getElementById('rad-titel').previousElementSibling.getBoundingClientRect();
-    const v = document.querySelector('#looks .cursor-ew-resize, #looks .cursor-grabbing').getBoundingClientRect();
-    return { w: Math.round(k.width), h: Math.round(k.height), mitKopf: Math.round(k.bottom - kicker.top), vergleich: Math.round(v.width) };
+    const kachel = document.getElementById('rad-kachel');
+    const k = kachel.getBoundingClientRect();
+    const kopf = document.getElementById('rad-titel').closest('.einblenden').getBoundingClientRect();
+    return { w: Math.round(k.width), h: Math.round(k.height), mitKopf: Math.round(k.bottom - kopf.top), buehne: Math.round(kachel.parentElement.getBoundingClientRect().width) };
   });
   const format = masse.w / masse.h;
   const flach = H <= 520;
-  const formatOk = flach ? Math.abs(format - 2) < 0.02 : W < 640 ? format >= 0.79 && format <= 0.9 && masse.w === W - 40 : Math.abs(format - 1.5) < 0.02 && masse.w === masse.vergleich;
+  const formatOk = flach ? Math.abs(format - 2) < 0.02 : W < 640 ? format >= 0.79 && format <= 0.9 && masse.w === W - 40 : Math.abs(format - 1.5) < 0.02 && masse.w === masse.buehne;
   ok(formatOk && masse.h <= H - 80 && (flach || masse.mitKopf <= H),
     `${name}: Kachel ${masse.w}×${masse.h} (${format.toFixed(2)}), nicht bildschirmfüllend${flach ? '' : `, mit Überschrift ${masse.mitKopf} px ≤ ${H}`}`);
   // Schachteln: Namen nicht abgeschnitten, nahe Schachteln deckend (blasser nur durch Abdunkeln, kein Glas), Name der
@@ -357,7 +359,9 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
 
   // Markenwechsel: Kodak, eigenes Rad.
   await page.evaluate(() => [...document.querySelectorAll('#alle-looks [role=tab]')].find((b) => b.textContent.startsWith('Kodak'))?.click());
-  const kodak = await wait(() => document.querySelectorAll('#look-rad [role=option]').length === 17 && document.getElementById('look-rad').getAttribute('aria-activedescendant')?.startsWith('rad-kodak'), 10_000);
+  // Die Frist kann ablaufen, während readPixels (SwiftShader) die Seite blockiert: danach noch einmal prüfen.
+  const kodakDa = () => document.querySelectorAll('#look-rad [role=option]').length === 17 && document.getElementById('look-rad').getAttribute('aria-activedescendant')?.startsWith('rad-kodak');
+  const kodak = (await wait(kodakDa, 10_000)) || (await page.evaluate(kodakDa));
   ok(kodak && (await wait(radBildFertig, 300_000)), `${name}: Marke Kodak mit eigenem Rad (17 Schachteln)`);
   await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
   await sleep(900);
@@ -367,7 +371,8 @@ async function radPruefen(page, name, viewport, { shotRad, wait, cdpTouch }) {
   await page.focus('#rad-marke-kodak');
   await page.keyboard.press('ArrowLeft');
   const leicaFokus = await page.evaluate(() => document.activeElement?.id === 'rad-marke-leica' && document.activeElement.getAttribute('aria-selected') === 'true');
-  ok(leicaFokus && (await wait(() => document.querySelectorAll('#look-rad [role=option]').length === 18, 10_000)) && (await wait(radBildFertig, 300_000)), `${name}: Marke Leica per Pfeiltaste (18 Schachteln)`);
+  const leicaDa = () => document.querySelectorAll('#look-rad [role=option]').length === 18;
+  ok(leicaFokus && ((await wait(leicaDa, 10_000)) || (await page.evaluate(leicaDa))) && (await wait(radBildFertig, 300_000)), `${name}: Marke Leica per Pfeiltaste (18 Schachteln)`);
   await wait(() => [...document.querySelectorAll('#look-rad .schachtel-fenster img[src^="blob:"]')].filter((i) => i.complete && i.naturalWidth > 0).length >= 5, 300_000);
   await sleep(900);
   await ausrichten(page);
@@ -399,6 +404,7 @@ const server = await startDevServer();
 async function run(name, viewport, editor, radEditor) {
   const t0 = Date.now();
   const { browser, page } = await launch({ viewport, log: false });
+  if (viewport.hasTouch) await page.setUserAgent(IPHONE);
   const errors = [];
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
@@ -427,84 +433,20 @@ async function run(name, viewport, editor, radEditor) {
   try {
     await page.goto(`${server.url}/`, { waitUntil: 'networkidle0' });
     await shot('1-start');
-    // Ausnahme: das vorab gerechnete Titelbild im Hero (statisch, ohne Engine).
-    ok(!requests.some((u) => u.includes('/beispiele/') && !u.includes('/beispiele/titel.jpg')), `${name}: erster Bildschirm ohne Beispielbilder (außer Titelbild)`);
+    // Ausnahme: das vorab gerechnete Titelbild im Hero (quer oder hoch, statisch, ohne Engine).
+    ok(!requests.some((u) => u.includes('/beispiele/') && !/\/beispiele\/titel(-hoch)?\.jpg$/.test(u)), `${name}: erster Bildschirm ohne Beispielbilder (außer Titelbild)`);
     const ov = await overflow();
     ok(ov.doc <= 0 && ov.main <= 0, `${name}: kein waagerechter Überlauf (Start) ${JSON.stringify(ov)}`);
-    const heroFill = await page.evaluate(() => {
-      const s = document.querySelector('main > section');
-      return s.getBoundingClientRect().height >= innerHeight - 1;
+    // Titelbild in der Fassung des Bildschirms (picture/source), und „Fotos wählen“ ohne Scrollen erreichbar.
+    const hero = await page.evaluate(() => {
+      const img = document.querySelector('main picture img');
+      const knopf = [...document.querySelectorAll('main > section button')].find((b) => b.textContent.includes('Fotos wählen'));
+      return { src: img.currentSrc.replace(/^.*\//, ''), geladen: img.complete && img.naturalWidth > 0, knopf: Math.round(knopf.getBoundingClientRect().bottom) };
     });
-    ok(heroFill, `${name}: Hero füllt den ersten Bildschirm`);
-
-    // Vergleich
-    await page.evaluate(() => [...document.querySelectorAll('main > section button')].find((b) => b.textContent.includes('Looks ansehen'))?.click());
-    const live = await wait(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 1000));
-    ok(live, `${name}: Vergleich live gerechnet (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
-    // Fassung nach Ausrichtung (Handy hochkant → hoch, sonst quer): Seitenfassung und Minis nur in dieser Fassung.
-    const fotos = requests.filter((u) => /\/beispiele\/(mini\/)?[a-z]+-(quer|hoch)\.jpg$/.test(u)).map((u) => u.replace(/^.*\/beispiele\//, ''));
-    ok(fotos.includes(`klippen-${fassung}.jpg`) && fotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `${name}: ${fassung}-Fassung der Beispielfotos (${fotos.join(', ')})`);
-    await sleep(900);
-    await scrollTo('#looks');
-    await sleep(300);
-    await shot('2-vergleich');
-
-    // Teiler ziehen (Maus bzw. Touch) und per Tastatur
-    await scrollTo('#looks .cursor-ew-resize', 'center');
-    await sleep(300);
-    const frame = await page.$('#looks [role=slider]');
-    const box = await page.evaluate(() => {
-      const r = document.querySelector('#looks .cursor-ew-resize, #looks .cursor-grabbing').getBoundingClientRect();
-      return { x: r.left, y: r.top, w: r.width, h: r.height };
-    });
-    const val = () => page.$eval('#looks [role=slider]', (e) => Number(e.getAttribute('aria-valuenow')));
-    if (viewport.hasTouch) {
-      const y = box.y + box.h * 0.6;
-      const cdp = await page.createCDPSession();
-      const tp = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-      await tp('touchStart', box.x + box.w * 0.5);
-      for (let i = 1; i <= 8; i++) await tp('touchMove', box.x + box.w * (0.5 - i * 0.04));
-      await tp('touchEnd');
-    } else {
-      await page.mouse.move(box.x + box.w * 0.5, box.y + box.h * 0.6);
-      await page.mouse.down();
-      for (let i = 1; i <= 8; i++) await page.mouse.move(box.x + box.w * (0.5 - i * 0.04), box.y + box.h * 0.6);
-      await page.mouse.up();
-    }
-    await sleep(200);
-    const dragged = await val();
-    ok(dragged >= 14 && dragged <= 22, `${name}: Teiler gezogen → ${dragged} %`);
-    await frame.focus();
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    ok((await val()) === dragged + 10, `${name}: Teiler per Pfeiltaste → ${await val()} %`);
-    await page.keyboard.press('End');
-    ok((await val()) === 100, `${name}: Ende-Taste → 100 %`);
-    await page.keyboard.press('Home');
-    await page.keyboard.press('ArrowRight');
-    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
-    await shot('3-teiler');
-
-    // Look wechseln
-    const lookBtn = await page.evaluateHandle(() => [...document.querySelectorAll('#looks button[aria-pressed]')].find((b) => b.textContent.includes('Acros')));
-    await lookBtn.click();
-    const acros = await wait(() => document.querySelector('#looks .top-3.right-3')?.textContent === 'Acros' &&
-      [...document.querySelectorAll('#looks img.ueberblenden')].filter((i) => i.src.startsWith('blob:') && i.naturalWidth > 1000).length >= 1);
-    ok(acros, `${name}: Look „Acros“ gewählt`);
-    await sleep(1200);
-    await shot('4-look-acros');
-
-    // Foto wechseln
-    await page.click('#looks button[aria-label="Beispielfoto Nachts"]');
-    const night = await wait((h) => [...document.querySelectorAll('#looks img')].some((i) => i.src.includes(`/beispiele/nachts-${h ? 'hoch' : 'quer'}.jpg`)) &&
-      [...document.querySelectorAll('#looks img.ueberblenden')].some((i) => i.src.startsWith('blob:') && Math.max(i.naturalWidth, i.naturalHeight) > 1000 &&
-        (h ? i.naturalHeight > 1.7 * i.naturalWidth : i.naturalWidth > 1.7 * i.naturalHeight)), 120_000, fassung === 'hoch');
-    ok(night, `${name}: Foto „Nachts“ gerechnet`);
-    await sleep(1200);
-    await scrollTo('#looks .cursor-ew-resize', 'center');
-    await sleep(300);
-    await shot('5-vergleich-nachts');
-    await page.click('#looks button[aria-label="Beispielfoto Klippen"]');
+    ok(hero.geladen && hero.src === (fassung === 'hoch' ? 'titel-hoch.jpg' : 'titel.jpg'), `${name}: Titelbild ${hero.src}`);
+    ok(hero.knopf <= viewport.height, `${name}: „Fotos wählen“ im ersten Bildschirm (unten bei ${hero.knopf} px)`);
+    // Hero füllt den ersten Bildschirm, damit das Look-Rad (und mit ihm die Engine) erst beim Scrollen lädt.
+    ok(await page.evaluate(() => document.querySelector('main > section').getBoundingClientRect().height >= innerHeight - 1), `${name}: Hero füllt den ersten Bildschirm`);
 
     // Look-Kachel (Filmschachteln auf dem Bogen): Bildschirmfotos nach test-output/look-rad/
     await radPruefen(page, name, viewport, { shotRad, wait, cdpTouch });
@@ -522,9 +464,32 @@ async function run(name, viewport, editor, radEditor) {
     await sleep(900);
     await shot('8-funktionen');
     await scrollTo('#rezept-titel');
-    await wait(() => [...document.querySelectorAll('section[aria-labelledby=rezept-titel] img')].some((i) => i.src.startsWith('blob:') && i.naturalWidth > 0));
+    ok(await wait(() => [...document.querySelectorAll('#rezepte img')].some((i) => i.src.startsWith('blob:') && i.naturalWidth > 0)), `${name}: Rezept am Beispielfoto live gerechnet`);
+    // Fassung nach Ausrichtung (Handy hochkant → hoch, sonst quer): Seitenfassung und Minis nur in dieser Fassung.
+    const fotos = requests.filter((u) => /\/beispiele\/(mini\/)?[a-z]+-(quer|hoch)\.jpg$/.test(u) && !u.includes('/titel')).map((u) => u.replace(/^.*\/beispiele\//, ''));
+    ok(['klippen', 'sonnenuntergang'].every((f) => fotos.includes(`${f}-${fassung}.jpg`)) && fotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `${name}: ${fassung}-Fassung der Beispielfotos (${fotos.join(', ')})`);
     await sleep(900);
     await shot('9-rezept');
+
+    // „Jetzt hinzufügen“: ohne Installationsdialog des Browsers (Headless Chrome) die Anleitung; am iPhone die Schritte
+    // in Safari, die von selbst weiterlaufen.
+    await scrollTo('#app');
+    await page.evaluate(() => [...document.querySelectorAll('#app button')].find((b) => b.textContent.includes('Jetzt hinzufügen'))?.click());
+    const dialog = () => page.evaluate(() => {
+      const d = document.querySelector('[role=dialog]');
+      return d && { titel: d.querySelector('h2')?.textContent, schritt: [...d.querySelectorAll('ol button')].findIndex((b) => b.getAttribute('aria-current') === 'step') };
+    });
+    ok(await wait(() => !!document.querySelector('[role=dialog]'), 5000), `${name}: „Jetzt hinzufügen“ öffnet einen Dialog`);
+    const d1 = await dialog();
+    if (viewport.hasTouch) {
+      await sleep(3200);
+      const d2 = await dialog();
+      ok(d1.titel === 'Zum Home-Bildschirm' && d1.schritt === 0 && d2.schritt === 1, `${name}: Anleitung für Safari läuft weiter (${JSON.stringify([d1, d2])})`);
+    } else ok(d1.titel === 'Als App installieren', `${name}: Anleitung für den PC (${d1.titel})`);
+    await sleep(600);
+    await shot('9b-anleitung');
+    await page.evaluate(() => [...document.querySelectorAll('[role=dialog] button')].find((b) => b.textContent.includes('Verstanden'))?.click());
+    ok(await wait(() => !document.querySelector('[role=dialog]'), 5000), `${name}: „Verstanden“ schließt die Anleitung`);
     await page.evaluate(() => { const m = document.querySelector('main'); m.scrollTop = m.scrollHeight; });
     await sleep(900);
     await shot('10-ende');
@@ -574,8 +539,8 @@ async function run(name, viewport, editor, radEditor) {
       const inEditor = await wait(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible');
       ok(inEditor, `${name}: Beispielfoto → Editor`);
       ok(grossGeladen('klippen'), `${name}: Editor lädt die große Fassung gross/klippen-${fassung}.jpg`);
-      // Der im Vergleich gewählte Look (Acros) kommt mit.
-      ok(await wait(() => document.body.innerText.includes('Acros'), 10_000), `${name}: Editor übernimmt den Look „Acros“`);
+      // Der Look des Titelbilds (Velvia) kommt mit.
+      ok(await wait(() => document.body.innerText.includes('Velvia'), 10_000), `${name}: Editor übernimmt den Look „Velvia“`);
       await sleep(1500);
       await shot('11-editor');
     }

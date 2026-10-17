@@ -16,3 +16,11 @@ Sharpness: -2
 Clarity: -2
 High ISO NR: -4
 Exposure Compensation: +1/3 to +1`;
+
+/** Zeilen des Rezepts nach dem, was sie bewirken (Startseite); je Gruppe in der Reihenfolge dieser Liste. */
+export const REZEPT_GRUPPEN: { name: string; wirkung: string; zeilen: string[] }[] = [
+  { name: 'Grundlook', wirkung: 'Filmsimulation', zeilen: ['Film Simulation'] },
+  { name: 'Tonwerte', wirkung: 'Kontrast, Lichter, Schatten', zeilen: ['Dynamic Range', 'Highlight', 'Shadow', 'Exposure Compensation'] },
+  { name: 'Farbe', wirkung: 'Stimmung und Sättigung', zeilen: ['White Balance', 'Color', 'Color Chrome Effect', 'Color Chrome FX Blue'] },
+  { name: 'Struktur', wirkung: 'Korn und Schärfe', zeilen: ['Grain Effect', 'Sharpness', 'Clarity', 'High ISO NR'] },
+];

@@ -337,31 +337,31 @@ async function run(mode, viewport) {
     ok(await page.evaluate(() => innerWidth === document.documentElement.scrollWidth), 'Startansicht ohne Seitenüberlauf');
     ok(!requested.some((u) => u.includes('libraw')), `RAW-Dekoder wird nicht vorab geladen (${requested.length} Anfragen beim Start)`);
     ok((await text()).includes('Fujifilm, Leica, Kodak und Ricoh sind Marken ihrer Inhaber'), 'Markenhinweis auf der Startseite');
-    // Ausnahme: das vorab gerechnete Titelbild im Hero (statisch, die Engine bleibt lazy).
-    ok(!requested.some((u) => u.includes('/beispiele/') && !u.includes('/beispiele/titel.jpg')), 'Startseite lädt Beispielfotos erst beim Scrollen (außer Titelbild)');
+    // Ausnahme: das vorab gerechnete Titelbild im Hero (quer oder hoch, statisch, die Engine bleibt lazy).
+    ok(!requested.some((u) => u.includes('/beispiele/') && !/\/beispiele\/titel(-hoch)?\.jpg$/.test(u)), 'Startseite lädt Beispielfotos erst beim Scrollen (außer Titelbild)');
     // Startseite unter der CSP: Beispielfoto laden und mit eigener Engine rechnen (beim Laden der Fotos wieder freigegeben).
-    await page.evaluate(() => document.getElementById('looks')?.scrollIntoView());
+    await page.evaluate(() => document.getElementById('rezepte')?.scrollIntoView());
     ok(
-      await waitFor(() => [...document.querySelectorAll('#looks img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 0), 120_000),
-      'Startseite: Vorher/Nachher am Beispielfoto live gerechnet',
+      await waitFor(() => [...document.querySelectorAll('#rezepte img')].some((i) => i.src.startsWith('blob:') && i.complete && i.naturalWidth > 0), 120_000),
+      'Startseite: Rezept am Beispielfoto live gerechnet',
     );
     // Fassung nach Ausrichtung: Handy hochkant lädt die Hochkantfotos, der PC die Querfotos (Seitenfassung und Minis).
     const fassung = touch ? 'hoch' : 'quer';
     const beispielFotos = requested.filter((u) => /\/beispiele\/(mini\/)?[a-z]+-(quer|hoch)\.jpg$/.test(u)).map((u) => u.replace(/^.*\/beispiele\//, ''));
-    ok(beispielFotos.includes(`klippen-${fassung}.jpg`) && beispielFotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `Startseite: ${fassung}-Fassung geladen (${beispielFotos.join(', ')})`);
-    /** Vergleich zeigt Foto `name` (Original) und ein gerechnetes Bild im passenden Format. */
-    const vergleichZeigt = (name, hoch) =>
+    ok(beispielFotos.includes(`sonnenuntergang-${fassung}.jpg`) && beispielFotos.every((u) => u.endsWith(`-${fassung}.jpg`)), `Startseite: ${fassung}-Fassung geladen (${beispielFotos.join(', ')})`);
+    /** Rezept-Beispiel zeigt Foto `name` (Original) und ein gerechnetes Bild im passenden Format. */
+    const rezeptZeigt = (name, hoch) =>
       waitFor(([n, h]) => {
-        const imgs = [...document.querySelectorAll('#looks img')];
+        const imgs = [...document.querySelectorAll('#rezepte img')];
         return imgs.some((i) => i.src.endsWith(`/beispiele/${n}.jpg`) && i.complete && i.naturalWidth > 0) &&
           imgs.some((i) => i.src.startsWith('blob:') && Math.max(i.naturalWidth, i.naturalHeight) > 1000 && i.naturalHeight > i.naturalWidth === h);
       }, 120_000, [name, hoch]);
     if (touch) {
       // Drehen: im Querformat live die quer-Fassung, wieder hochkant die hoch-Fassung.
       await page.setViewport({ ...viewport, width: viewport.height, height: viewport.width });
-      ok(await vergleichZeigt('klippen-quer', false), 'Startseite: nach dem Drehen ins Querformat die quer-Fassung');
+      ok(await rezeptZeigt('sonnenuntergang-quer', false), 'Startseite: nach dem Drehen ins Querformat die quer-Fassung');
       await page.setViewport(viewport);
-      ok(await vergleichZeigt('klippen-hoch', true), 'Startseite: wieder hochkant die hoch-Fassung');
+      ok(await rezeptZeigt('sonnenuntergang-hoch', true), 'Startseite: wieder hochkant die hoch-Fassung');
     }
     // Look-Rad: Hintergrund und Sichtfenster der Filmschachteln mit der Engine gerechnet; Pfeiltaste dreht.
     await page.evaluate(() => document.getElementById('alle-looks')?.scrollIntoView());

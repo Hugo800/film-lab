@@ -7,6 +7,13 @@
   }
 }
 
+/* Hochkante Bildrahmen der Startseite: Handy hochkant (wie HOCH in src/ui/start/hooks.ts, dort die Wahl der Fotos). */
+@custom-variant hoch {
+  @media (orientation: portrait) and (width < 40rem) {
+    @slot;
+  }
+}
+
 /* Ruhiges Dunkel: das Bild soll leuchten, nicht die Bedienelemente. */
 @theme {
   --color-ink: #0b0b0c;
@@ -162,29 +169,192 @@ input[type='range'].regler:disabled {
   animation: ueberblenden 0.6s ease-out both;
 }
 
-/* „Looks ansehen“: Pfeil wippt. */
-@keyframes wippen {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(5px);
-  }
-}
-.wippen {
-  animation: wippen 1.8s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .einblenden {
     opacity: 1;
     transform: none;
     transition: none;
   }
-  .ueberblenden,
-  .wippen {
+  .ueberblenden {
     animation: none;
+  }
+}
+
+/* Filmkorn auf der ganzen Startseite, hinter dem Inhalt: ein kleines Rauschbild, gekachelt. */
+.korn {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='k'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23k)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+}
+
+/* Kleinbildfilm als Bildrahmen (Filmstreifen in teile.tsx): Perforation und Randbeschriftung an den Längsseiten,
+   quer am PC, hochkant am Handy. Die Löcher haben die Farbe der Seite, wirken also gestanzt. */
+.filmstreifen {
+  --rand: 30px;
+  --loch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='19' height='12'%3E%3Crect x='5' y='0' width='9' height='12' rx='2' fill='%230b0b0c'/%3E%3C/svg%3E");
+  position: relative;
+  padding: var(--rand) 0;
+  border-radius: 4px;
+  background-color: var(--color-panel);
+  background-image: var(--loch), var(--loch);
+  background-repeat: repeat-x;
+  background-size: 19px 12px;
+  background-position:
+    0 13px,
+    0 calc(100% - 13px);
+}
+.filmstreifen-bild {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-raised);
+}
+/* Randbeschriftung wie auf dem Negativ: außen, zwischen Perforation und Kante. */
+.filmstreifen-rand {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-accent) 75%, transparent);
+  pointer-events: none;
+}
+.filmstreifen-rand.oben {
+  top: 2.5px;
+}
+.filmstreifen-rand.unten {
+  bottom: 2.5px;
+}
+@media (orientation: portrait) and (width < 40rem) {
+  .filmstreifen {
+    padding: 0 var(--rand);
+    background-image: var(--loch), var(--loch);
+    background-repeat: repeat-y;
+    background-size: 12px 19px;
+    background-position:
+      13px 0,
+      calc(100% - 13px) 0;
+    --loch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='19'%3E%3Crect x='0' y='5' width='12' height='9' rx='2' fill='%230b0b0c'/%3E%3C/svg%3E");
+  }
+  .filmstreifen-rand {
+    top: 14px;
+    bottom: 14px;
+    left: auto;
+    right: auto;
+    writing-mode: vertical-rl;
+  }
+  .filmstreifen-rand.oben {
+    top: 14px;
+    left: 2.5px;
+    transform: rotate(180deg);
+  }
+  .filmstreifen-rand.unten {
+    right: 2.5px;
+    bottom: 14px;
+  }
+}
+
+/* Sucher: Eckmarken und Messfeld über einem Bild (Funktionen der Startseite). */
+.sucher {
+  --c: rgb(255 255 255 / 0.85);
+  --l: 18px;
+  --s: 1.5px;
+  position: absolute;
+  inset: 14px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--l) var(--s),
+    linear-gradient(var(--c), var(--c)) top left / var(--s) var(--l),
+    linear-gradient(var(--c), var(--c)) top right / var(--l) var(--s),
+    linear-gradient(var(--c), var(--c)) top right / var(--s) var(--l),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--l) var(--s),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--s) var(--l),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--l) var(--s),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--s) var(--l);
+  background-repeat: no-repeat;
+}
+.sucher::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: var(--s) solid var(--c);
+  border-radius: 2px;
+}
+
+/* App-Abschnitt (AppHinweis.tsx): Film Lab springt auf den Home-Bildschirm, sobald der Abschnitt erscheint. */
+@keyframes landen {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+.sichtbar .app-neu {
+  animation: landen 0.6s 0.5s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+
+/* Anleitung „Zum Home-Bildschirm“: Ring um das, was als Nächstes anzutippen ist, dazu ein Puls. */
+@keyframes tippen {
+  from {
+    box-shadow:
+      0 0 0 2px var(--color-accent),
+      0 0 0 2px rgb(230 180 80 / 0.7);
+  }
+  to {
+    box-shadow:
+      0 0 0 2px var(--color-accent),
+      0 0 0 14px rgb(230 180 80 / 0);
+  }
+}
+.tipp {
+  box-shadow: 0 0 0 2px var(--color-accent);
+  animation: tippen 1.4s 0.35s ease-out infinite;
+}
+@keyframes blatt {
+  from {
+    transform: translateY(100%);
+  }
+}
+.blatt-rein {
+  animation: blatt 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes menue {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+.menue-rein {
+  transform-origin: 100% 100%;
+  animation: menue 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* Im Teilen-Blatt nach unten scrollen bis „Zum Home-Bildschirm“. */
+@keyframes scrollen {
+  to {
+    transform: translateY(-78px);
+  }
+}
+.liste-scrollen {
+  animation: scrollen 0.9s 0.6s ease-in-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sichtbar .app-neu,
+  .blatt-rein,
+  .menue-rein {
+    animation: none;
+  }
+  .tipp {
+    animation: none;
+  }
+  .liste-scrollen {
+    animation: none;
+    transform: translateY(-78px);
   }
 }
 

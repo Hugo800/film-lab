@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOOKS } from '../../looks';
 import { parseRecipe } from '../recipeText';
-import { BEISPIEL_LOOK, BEISPIEL_REZEPT } from './rezept';
+import { BEISPIEL_LOOK, BEISPIEL_REZEPT, REZEPT_GRUPPEN } from './rezept';
 
 describe('Rezept-Beispiel der Startseite', () => {
   it('ergibt beim Einfügen genau die Einstellungen des Looks', () => {
@@ -14,5 +14,10 @@ describe('Rezept-Beispiel der Startseite', () => {
     // Der Look rundet die Bereichsmitte auf zwei Stellen.
     expect(r.params.exposure).toBeCloseTo(exposure!, 2);
     expect(r.skipped.map((s) => s.line)).toEqual(['High ISO NR: -4']);
+  });
+
+  it('ordnet jede Zeile des Rezepts genau einer Gruppe zu', () => {
+    const zeilen = BEISPIEL_REZEPT.split('\n').slice(1).map((r) => r.split(':')[0]);
+    expect(REZEPT_GRUPPEN.flatMap((g) => g.zeilen).sort()).toEqual([...zeilen].sort());
   });
 });
