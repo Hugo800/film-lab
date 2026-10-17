@@ -15,7 +15,7 @@
 - **Rezepte einfügen.** Den Text eines Rezepts von [Fuji X Weekly](https://fujixweekly.com) einfügen: Film Lab stellt Look und Einstellungen ein und zeigt, was es nicht übernehmen kann. Eigene Rezepte und `.cube`-LUTs bleiben im Browser gespeichert.
 - **Offizielle Fujifilm-LUTs selbst laden (optional).** Für zehn Simulationen veröffentlicht Fujifilm eigene LUTs. Film Lab liefert sie nicht mit, weil sie Fujifilm gehören und laut Recherche nur für den persönlichen, nicht kommerziellen Gebrauch gedacht sind, ohne Abwandlung. Wer sie selbst bei Fujifilm lädt, bekommt die Looks noch näher am Original (siehe unten).
 - **100-%-Lupe, Gesten, Tastenkürzel.** Die Lupe rechnet den Ausschnitt wie der Export, mit Korn und Schärfe. Bedienung am Handy per Wischen, Halten und Doppeltipp, am PC per Tastatur und Mausrad.
-- **JPEG, PNG, HEIC und Sony-ARW.** RAW-Dateien entwickelt Film Lab im Browser (LibRaw als WebAssembly). Mehrere Fotos auf einmal, ein Look lässt sich auf alle übertragen.
+- **JPEG, PNG, HEIC und Sony-ARW.** RAW-Dateien entwickelt Film Lab im Browser (LibRaw als WebAssembly) und korrigiert Verzeichnung und Farbsäume wie die Kamera (Korrekturdaten aus der ARW). Mehrere Fotos auf einmal, ein Look lässt sich auf alle übertragen.
 - **Export in voller Auflösung** als JPEG (Qualität 92) mit den Aufnahmedaten (EXIF) der Quelle. Mehrere Fotos kommen am PC als ZIP, am iPhone über das Teilen-Menü.
 - **Als App installieren, offline nutzen.** Film Lab ist eine PWA: Nach dem ersten Besuch läuft es auch ohne Netz.
 

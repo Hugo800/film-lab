@@ -8,7 +8,7 @@ import { Funktionen } from './start/Funktionen';
 import { useFoto, WerkstattContext } from './start/hooks';
 import { LookRad } from './start/LookRad';
 import { RezeptBeispiel } from './start/RezeptBeispiel';
-import { Einblenden } from './start/teile';
+import { BeispielLadeanzeige, Einblenden } from './start/teile';
 import { Vergleich } from './start/Vergleich';
 import { createWerkstatt, type BeispielId } from './start/werkstatt';
 
@@ -128,6 +128,8 @@ export function StartView({ onPick }: { onPick: () => void }) {
           <p>{TRADEMARK_NOTE}</p>
           <p>Keine Cookies, kein Tracking. Rezepte und LUTs bleiben im Speicher dieses Browsers.</p>
         </footer>
+
+        <BeispielLadeanzeige />
 
         {/* Beim Ziehen von Dateien: ganze Fläche als Ziel (App.tsx nimmt den Drop entgegen). */}
         {dragging && (

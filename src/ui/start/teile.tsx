@@ -1,4 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import { Spinner } from '../controls';
+import { beispielLadenAbo, beispielLadezustand } from './beispielLaden';
 import { useFassung, useInView } from './hooks';
 import { BEISPIELE, foto, miniUrl, type BeispielId } from './werkstatt';
 
@@ -69,6 +71,50 @@ export function FotoWahl({ value, onChange, className = '' }: { value: BeispielI
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Dezente Anzeige, solange die Editor-Fassung eines Beispielfotos lädt (bis ~2,5 MB), mit Anteil, wenn der Server die
+ * Größe nennt. Erst nach kurzer Zeit, damit sie aus dem Cache nicht aufblitzt; Platz wie die Meldungen (Toast).
+ */
+export function BeispielLadeanzeige() {
+  const z = useSyncExternalStore(beispielLadenAbo, beispielLadezustand);
+  const laedt = z !== null;
+  const [frei, setFrei] = useState(false);
+  useEffect(() => {
+    if (!laedt) return;
+    const t = setTimeout(() => setFrei(true), 150);
+    return () => {
+      clearTimeout(t);
+      setFrei(false);
+    };
+  }, [laedt]);
+  if (!z || !frei) return null;
+  const prozent = z.anteil === null ? null : Math.round(z.anteil * 100);
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+56px)] z-[60] flex justify-center px-4 side:top-auto side:bottom-20">
+      <div role="status" className="flex w-80 max-w-full flex-col gap-2.5 rounded-2xl border border-line bg-raised/95 px-4 py-3 text-sm shadow-xl backdrop-blur">
+        <p className="flex items-center gap-2.5">
+          <Spinner className="size-4" />
+          <span className="flex-1 whitespace-nowrap">Beispielfoto wird geladen …</span>
+          {prozent !== null && <span className="text-dim tabular-nums">{prozent} %</span>}
+        </p>
+        <div
+          role="progressbar"
+          aria-label="Beispielfoto laden"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={prozent ?? undefined}
+          className="h-1 overflow-hidden rounded-full bg-line"
+        >
+          <div
+            className={`h-full rounded-full bg-accent ${prozent === null ? 'w-1/4 animate-pulse' : 'transition-[width] duration-200'}`}
+            style={prozent === null ? undefined : { width: `${prozent}%` }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

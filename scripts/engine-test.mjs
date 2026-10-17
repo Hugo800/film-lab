@@ -1,8 +1,8 @@
 // Browser-Prüfung der Engine: npm run test:engine [-- schritt …]
 // Startet den Test-Dev-Server selbst (Port TEST_PORT, Vorgabe 5190).
-// Schritte: identity seams compare staerke region timing abort jpeg thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
+// Schritte: identity seams compare staerke region timing abort jpeg arw thumbs loss mobile shots grain cc strips (ohne Angabe: alle).
 // Vergleichsbilder je Effekt (strips, grain, cc) nach test-output/engine-v2/.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { launch, startDevServer } from './lib/browser.mjs';
 
 const server = await startDevServer();
@@ -133,6 +133,32 @@ try {
     if (r.error) console.log(`HINWEIS exportJpeg: ${r.error}`);
     else expect(r.w === 3670 && r.h === 5505 && r.segs.some((x) => x.startsWith('e1:Exif')) && !r.segs.some((x) => x.startsWith('e2:')) && r.transferred,
       `exportJpeg mit io.loadFile: ${r.w}×${r.h}, ${(r.bytes / 1e6).toFixed(2)} MB, ${(r.ms / 1000).toFixed(1)} s, Quelle ${r.colorSpace}, Segmente ${r.segs.join(' ')} (ohne ICC), RGBA-Puffer verschoben: ${r.transferred}`);
+  }
+
+  // ARW mit Objektivkorrektur (privates Testbild, E PZ 16-50 bei 16 mm): Import, Vorschau = Export, Kachelnähte, 100-%-Lupe.
+  if (want('arw')) {
+    const ARW = 'DSC04866.ARW';
+    if (!existsSync(`testbilder/${ARW}`)) console.log(`übersprungen: ARW mit Objektivkorrektur (testbilder/${ARW} fehlt)`);
+    else {
+      const a = await T('arw', ARW);
+      results.arw = { ...a, exif: a.exif.length };
+      const exif = String.fromCharCode(...a.exif);
+      expect(a.mit[0] === 6000 && a.mit[1] === 4000 && a.ohne[0] === a.mit[0] && a.ohne[1] === a.mit[1] && a.ecke > 5 && a.mitte > 1,
+        `ARW-Import ${ARW}: mit Korrektur ${a.mit.join('×')} wie ohne ${a.ohne.join('×')}; Abweichung Ecke ${a.ecke.toFixed(1)}, Mitte ${a.mitte.toFixed(1)}; ${a.msMit} ms statt ${a.msOhne} ms`);
+      expect(a.export.size?.[0] === 6000 && a.export.size?.[1] === 4000 && a.export.segs.some((x) => x.startsWith('e1:Exif')) && !a.export.segs.some((x) => x.startsWith('e2:')) && exif.includes('ILCE-6000'),
+        `ARW-Export: ${a.export.size?.join('×')}, ${(a.export.bytes / 1e6).toFixed(1)} MB, Segmente ${a.export.segs.join(' ')}, EXIF ${a.exif.length} Byte`);
+      const v = await T('previewVsExport', ARW, ALL, LOOK);
+      save('compare-arw-preview', v.png.preview);
+      save('compare-arw-export-down', v.png.down);
+      expect(v.vsDownscaledFull.mean < 3, `ARW: Vorschau vs. verkleinerter Vollexport (alle Effekte) Mittel ${v.vsDownscaledFull.mean.toFixed(2)}, max ${v.vsDownscaledFull.max}; vs. Export maxEdge Mittel ${v.vsSmall?.mean.toFixed(2)}`);
+      const n = await T('seams', ARW, ALL, LOOK);
+      expect(n.max <= 1, `ARW: Kacheln 512 vs. 2048 (alle Effekte): max ${n.max}, Mittel ${n.mean.toFixed(5)}`);
+      const r = await T('region', ARW, { grainEffect: 2, grainSize: 'gross', sharpness: 4, clarity: 5, halation: 0.5 }, 'classic-chrome', 1200, 800);
+      save('region-arw', r.png);
+      const d = (x) => `Mittel ${x.mean.toFixed(3)}, max ${x.max}`;
+      expect(r.active.mean <= 1 && r.active.max <= 4 && r.original.max <= 1 && r.preview.max === 0,
+        `ARW: renderRegion vs. Export-Ausschnitt ${d(r.active)}; Original vs. Quelle ${d(r.original)}; Vorschau davor/danach ${d(r.preview)}`);
+    }
   }
 
   if (want('thumbs')) {

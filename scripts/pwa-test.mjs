@@ -12,6 +12,8 @@ const OUT = resolve('test-output/pwa-build');
 const DL = resolve('test-output/pwa-downloads');
 const JPEG = resolve('testbilder/DSC03982.JPEG');
 const ARW = resolve('testbilder/raw/DSC01542.ARW');
+// Privates Testbild mit Objektivkorrektur (E PZ 16-50 bei 16 mm); fehlt es, entfällt die Prüfung.
+const ARW_KORREKTUR = resolve('testbilder/DSC04866.ARW');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0;
 const ok = (cond, msg, extra = '') => {
@@ -51,6 +53,7 @@ try {
     return keys.map((r) => new globalThis.URL(r.url).pathname);
   });
   ok(precache.some((u) => /libraw-.*\.wasm$/.test(u)) && precache.some((u) => /mozjpeg_enc-.*\.wasm$/.test(u)), 'Precache enthält libraw- und mozjpeg-WASM', `${precache.length} Einträge`);
+  ok(precache.some((u) => /objektivWorker-.*\.js$/.test(u)), 'Precache enthält den Worker der Objektivkorrektur');
   ok(['klippen-quer', 'klippen-hoch'].every((n) => precache.some((u) => u.endsWith(`/beispiele/${n}.jpg`))), 'Precache enthält die Beispielfotos (quer und hoch)');
   const grossImBuild = readdirSync(resolve(OUT, 'beispiele/gross'));
   ok(grossImBuild.length > 0 && !precache.some((u) => u.includes('/beispiele/gross/')), 'Editor-Fassungen (beispiele/gross) im Build, aber nicht im Precache', `${grossImBuild.length} Dateien`);
@@ -91,6 +94,16 @@ try {
   await load(page, ARW);
   ok(true, 'Offline: ARW bis „bereit“');
   await page.screenshot({ path: 'test-output/pwa-offline-arw.png' });
+  if (existsSync(ARW_KORREKTUR)) {
+    const worker = [];
+    const merken = (w) => worker.push(w.url());
+    page.on('workercreated', merken);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await load(page, ARW_KORREKTUR);
+    page.off('workercreated', merken);
+    const n = worker.filter((u) => u.includes('objektivWorker')).length;
+    ok(n > 0, 'Offline: ARW mit Objektivkorrektur bis „bereit“', `${n} Worker der Objektivkorrektur`);
+  } else console.log(`übersprungen: ARW mit Objektivkorrektur offline (${ARW_KORREKTUR} fehlt)`);
 
   // Beispielfoto im Editor: die große Fassung (beispiele/gross) kommt erst beim Öffnen, danach aus dem Laufzeit-Cache.
   // Offline und noch nicht im Cache: ohne Meldung die Seitenfassung aus dem Precache. setOfflineMode gilt nur für die

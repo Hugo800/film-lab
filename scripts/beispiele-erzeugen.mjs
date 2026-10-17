@@ -2,10 +2,11 @@
 // Je Foto zwei Fassungen: quer (PC, Querformat) und hoch (Handy hochkant); Namen und Ausschnitte wie BEISPIELE in
 // src/ui/start/werkstatt.ts. Alles läuft in Headless Chrome auf dem Test-Dev-Server:
 // 1. Quelle öffnen: JPEG per createImageBitmap (Chrome rechnet Display P3 nach sRGB), Sony-RAW (ARW) mit der
-//    RAW-Entwicklung der App (loadFile aus src/io, libraw-wasm), ohne Look. Danach wie in der Kamera: Verzeichnung und
-//    Farbsäume nach den Korrekturdaten in der ARW entzerren (libraw tut das nicht), Belichtung und Weißabgleich an die
+//    RAW-Entwicklung der App (decodeRaw aus src/io/raw, libraw-wasm), ohne Look. Danach wie in der Kamera: Verzeichnung
+//    und Farbsäume mit der Objektivkorrektur der App entzerren (src/io/raw/objektiv.ts, wie beim ARW-Import im
+//    Editor), in einem Zug mit dem Geradedrehen des Horizonts (eine Neuabtastung); Belichtung und Weißabgleich an die
 //    Kamera-Vorschau in der ARW angleichen (je Kanal eine Verstärkung in linearem Licht mit weicher Schulter, so dass
-//    die Mittelwerte übereinstimmen; Messwerte im Protokoll), bei Bedarf den Horizont gerade drehen.
+//    die Mittelwerte übereinstimmen; Messwerte im Protokoll).
 // 2. Daraus: Seitenfassung (lange Kante 2048, im Precache der App), Editor-Fassung gross/ (lange Kante 4000, nur
 //    beim Öffnen im Editor geladen) und die Mini-Vorschau der Foto-Wahl (mini/, 168×132 = 56×44 bei @3).
 // 3. Mit der Engine der App: Titelbild (Klippen quer, halb Original, halb Velvia) und Lupe (Klippen mit Portra 400,
@@ -128,121 +129,19 @@ try {
         return { srgb: m.map((x) => +(x / n).toFixed(1)), linear: ml.map((x) => +(x / n).toFixed(4)) };
       },
       /**
-       * Objektivkorrektur, die die Kamera für ihr JPEG anwendet, aus der ARW (SubIFD der Rohdaten, je 11 Stützstellen
-       * über den Radius bis zur halben Diagonale): 0x7037 Verzeichnung, 0x7035 Farbsäume (erst Rot, dann Blau). Ohne sie
-       * zeigt das 16-50 bei 16 mm stark tonnenförmige Verzeichnung. Die Vignettierung (0x7032) gleicht die
-       * Kamera-Vorschau nicht aus (gemessen), sie bleibt deshalb.
+       * Je Kanal Verstärkung `g` in linearem Licht, oberhalb von KNIE weich auf 1 auslaufend (keine Lichter beschnitten).
+       * Wirkt auf die RGBA-Pixel `d` an Ort und Stelle (keine Neuabtastung).
        */
-      objektiv(buf) {
-        const v = new DataView(buf);
-        const le = v.getUint8(0) === 0x49;
-        const found = {};
-        const seen = new Set();
-        const walk = (off) => {
-          if (!off || seen.has(off) || off + 2 > buf.byteLength) return;
-          seen.add(off);
-          const n = v.getUint16(off, le);
-          for (let i = 0; i < n; i++) {
-            const e = off + 2 + i * 12;
-            const tag = v.getUint16(e, le);
-            const count = v.getUint32(e + 4, le);
-            if (tag === 0x14a) for (let k = 0; k < count; k++) walk(count === 1 ? v.getUint32(e + 8, le) : v.getUint32(v.getUint32(e + 8, le) + 4 * k, le));
-            if (tag === 0x7035 || tag === 0x7037) {
-              const at = v.getUint32(e + 8, le);
-              found[tag] = Array.from({ length: count }, (_, k) => v.getInt16(at + 2 * k, le));
-            }
-          }
-          walk(v.getUint32(off + 2 + n * 12, le));
-        };
-        walk(v.getUint32(4, le));
-        const [verz, ca] = [found[0x7037], found[0x7035]];
-        if (!verz || !ca) return null;
-        const nc = verz[0];
-        return { verzeichnung: verz.slice(1, nc + 1), caRot: ca.slice(1, nc + 1), caBlau: ca.slice(nc + 1, 2 * nc + 1) };
-      },
-      /**
-       * Eine Bildpassage in einem Zug: Verzeichnung und Farbsäume (Neuabtastung, bilinear in linearem Licht), auf Wunsch
-       * gerade gedreht; der Maßstab füllt wie in der Kamera das ganze Bild (größtes Bildfeld ohne leere Ränder). Je Kanal
-       * Verstärkung `g` in linearem Licht, oberhalb von KNIE weich auf 1 auslaufend (keine Lichter beschnitten). Ohne
-       * `geometrie` bleibt jedes Pixel an seiner Stelle (für die 100-%-Lupe ohne Neuabtastung).
-       */
-      korrigieren(src, W, Hh, { g, objektiv, drehen = 0, geometrie = true }) {
-        const nc = objektiv.verzeichnung.length;
-        // Faktor Ausgabe → Quelle je Kanal als Tabelle über den Radius 0 … RMAX (in halben Diagonalen, N Stufen),
-        // jenseits der letzten Stützstelle konstant.
-        const N = 6144;
-        const RMAX = 1.5;
-        const spline = (werte) => Float32Array.from({ length: N + 1 }, (_, i) => {
-          const t = Math.min(1, (i / N) * RMAX) * (nc - 1);
-          const k = Math.min(nc - 2, Math.floor(t));
-          return werte[k] + (werte[k + 1] - werte[k]) * (t - k);
-        });
-        const d = objektiv.verzeichnung.map((x) => x / 16384 + 1);
-        const fak = geometrie
-          ? [spline(d.map((x, i) => x * (objektiv.caRot[i] / 2097152 + 1))), spline(d), spline(d.map((x, i) => x * (objektiv.caBlau[i] / 2097152 + 1)))]
-          : [1, 1, 1].map(() => new Float32Array(N + 1).fill(1));
+      verstaerken(d, g) {
         const KNIE = 0.8;
-        const M = 1 << 16;
-        const LMAX = 4;
-        const aus = Uint8Array.from({ length: M }, (_, i) => {
-          const x = (i / M) * LMAX;
-          return srgb(x <= KNIE ? x : KNIE + (1 - KNIE) * (1 - Math.exp(-(x - KNIE) / (1 - KNIE))));
-        });
-        const t = geometrie ? (drehen * Math.PI) / 180 : 0;
-        const cos = Math.cos(t);
-        const sin = Math.sin(t);
-        const R = Math.hypot(W / 2, Hh / 2);
-        const index = (cx, cy) => Math.min(N, Math.round((Math.hypot(cx, cy) / R / RMAX) * N));
-        // Größter Maßstab z, bei dem jeder Randpunkt der Ausgabe (gedreht, entzerrt, je Kanal) noch in der Quelle liegt.
-        const passt = (z) => {
-          for (let k = 0; k <= 400; k++) {
-            const u = k / 400 - 0.5;
-            for (const [ox, oy] of [[u * W, -Hh / 2], [u * W, Hh / 2], [-W / 2, u * Hh], [W / 2, u * Hh]]) {
-              const cx = z * (ox * cos + oy * sin);
-              const cy = z * (-ox * sin + oy * cos);
-              const ri = index(cx, cy);
-              for (const f of fak) if (Math.abs(cx * f[ri]) > W / 2 || Math.abs(cy * f[ri]) > Hh / 2) return false;
-            }
-          }
-          return true;
-        };
-        let z = 1;
-        if (geometrie) {
-          let [lo, hi] = [0.5, RMAX];
-          for (let i = 0; i < 30; i++) [lo, hi] = passt((lo + hi) / 2) ? [(lo + hi) / 2, hi] : [lo, (lo + hi) / 2];
-          z = lo;
-        }
-        const out = new Uint8ClampedArray(W * Hh * 4);
-        for (let y = 0; y < Hh; y++) {
-          for (let x = 0; x < W; x++) {
-            const ox = x + 0.5 - W / 2;
-            const oy = y + 0.5 - Hh / 2;
-            const cx = z * (ox * cos + oy * sin);
-            const cy = z * (-ox * sin + oy * cos);
-            const ri = index(cx, cy);
-            const o = (y * W + x) * 4;
-            for (let k = 0; k < 3; k++) {
-              const f = fak[k][ri];
-              const sx = Math.min(W - 1, Math.max(0, W / 2 + cx * f - 0.5));
-              const sy = Math.min(Hh - 1, Math.max(0, Hh / 2 + cy * f - 0.5));
-              const x0 = Math.floor(sx);
-              const y0 = Math.floor(sy);
-              const x1 = Math.min(W - 1, x0 + 1);
-              const y1 = Math.min(Hh - 1, y0 + 1);
-              const fx = sx - x0;
-              const fy = sy - y0;
-              const a = (y0 * W + x0) * 4 + k;
-              const b = (y0 * W + x1) * 4 + k;
-              const c = (y1 * W + x0) * 4 + k;
-              const e = (y1 * W + x1) * 4 + k;
-              const l = (lin[src[a]] * (1 - fx) + lin[src[b]] * fx) * (1 - fy) + (lin[src[c]] * (1 - fx) + lin[src[e]] * fx) * fy;
-              out[o + k] = aus[Math.min(M - 1, ((l * g[k]) / LMAX) * M) | 0];
-            }
-            out[o + 3] = 255;
-          }
-        }
-        this.massstab = z;
-        return new ImageData(out, W, Hh);
+        const kurve = g.map((gk) =>
+          Uint8Array.from({ length: 256 }, (_, v) => {
+            const x = lin[v] * gk;
+            return srgb(x <= KNIE ? x : KNIE + (1 - KNIE) * (1 - Math.exp(-(x - KNIE) / (1 - KNIE))));
+          }),
+        );
+        for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) d[i + k] = kurve[k][d[i + k]];
+        return d;
       },
     };
   });
@@ -255,41 +154,42 @@ try {
         let voll;
         let angleich = null;
         if (/\.arw$/i.test(p.src)) {
-          // RAW wie im Editor (loadFile → libraw-wasm), dann wie die Kamera: Objektivkorrektur, Belichtung und
-          // Weißabgleich angeglichen an ihre Vorschau.
-          const { loadFile } = await import('/src/io/index.ts');
+          // RAW wie im Editor (decodeRaw → libraw-wasm), dann wie die Kamera: Objektivkorrektur der App (hier mit
+          // Drehung in einem Zug, deshalb ohne die Korrektur entwickeln), Belichtung und Weißabgleich angeglichen an
+          // ihre Vorschau.
+          const { decodeRaw } = await import('/src/io/raw/index.ts');
+          const { entzerren, leseObjektivkorrektur, objektivAbbildung } = await import('/src/io/raw/objektiv.ts');
           const buf = await (await fetch(`/${p.src}`)).arrayBuffer();
           const vorschau = await H.vorschau(buf);
-          const objektiv = H.objektiv(buf);
+          const objektiv = leseObjektivkorrektur(new Uint8Array(buf));
           if (!objektiv) throw new Error(`${p.src}: keine Objektivkorrektur in der ARW`);
-          const src = await loadFile(new File([buf], p.src.split('/').pop()));
+          const src = await decodeRaw(new File([buf], p.src.split('/').pop()), { objektivkorrektur: false });
           const { data, width: W, height: Hh } = src.pixels;
-          const leinwand = (img) => {
-            const c = new OffscreenCanvas(img.width, img.height);
-            c.getContext('2d').putImageData(img, 0, 0);
+          const leinwand = (d, w, h) => {
+            const c = new OffscreenCanvas(w, h);
+            c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(d.buffer, d.byteOffset, d.length), w, h), 0, 0);
             return c;
           };
-          const roh = leinwand(new ImageData(new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), W, Hh));
+          const ganz = (w, h) => ({ left: 0, top: 0, width: w, height: h });
+          const roh = leinwand(data, W, Hh);
           const ziel = await H.messen(vorschau);
           const vorher = await H.messen(roh);
           // Verstärkung je Kanal so, dass die linearen Mittel der Vorschau getroffen werden; gemessen an einer kleinen
-          // Kopie mit derselben Korrektur (wegen der Schulter in einigen Runden).
+          // entzerrten Kopie (wegen der Schulter in einigen Runden).
           const klein = await H.verkleinern(roh, 600);
-          const kd = H.pixel(klein);
+          const [kw, kh] = [klein.width, klein.height];
+          const kd = entzerren({ data: H.pixel(klein), breite: kw, hoehe: kh, kanaele: 4 }, ganz(kw, kh), objektivAbbildung(objektiv, kw, kh));
           let g = [1, 1, 1];
           for (let r = 0; r < 5; r++) {
-            const ist = await H.messen(leinwand(H.korrigieren(kd, klein.width, klein.height, { g, objektiv })));
+            const ist = await H.messen(leinwand(H.verstaerken(kd.slice(), g), kw, kh));
             g = g.map((gk, k) => gk * (ziel.linear[k] / ist.linear[k]));
           }
-          const nachher = await H.messen(leinwand(H.korrigieren(kd, klein.width, klein.height, { g, objektiv })));
-          const fertig = leinwand(H.korrigieren(data, W, Hh, { g, objektiv, drehen: p.drehen }));
-          const z = H.massstab;
-          angleich = { g: g.map((x) => +x.toFixed(3)), ev: +Math.log2(g[1]).toFixed(2), vorher, nachher, ziel, roh: [W, Hh], z: +z.toFixed(4) };
+          const nachher = await H.messen(leinwand(H.verstaerken(kd.slice(), g), kw, kh));
+          const abb = objektivAbbildung(objektiv, W, Hh, p.drehen);
+          const fertig = leinwand(H.verstaerken(entzerren({ data, breite: W, hoehe: Hh, kanaele: 4 }, ganz(W, Hh), abb), g), W, Hh);
+          angleich = { g: g.map((x) => +x.toFixed(3)), ev: +Math.log2(g[1]).toFixed(2), vorher, nachher, ziel, roh: [W, Hh], z: +abb.massstab.toFixed(4) };
           // Für die Lupe: die volle Entwicklung ohne Neuabtastung (Pixel an ihrer Stelle) als Quelle der Engine.
-          if (p.name === 'klippen-quer') {
-            const l = H.korrigieren(data, W, Hh, { g, objektiv, geometrie: false });
-            window.__lupeQuelle = { ...src, pixels: { data: new Uint8Array(l.data.buffer), width: W, height: Hh } };
-          }
+          if (p.name === 'klippen-quer') window.__lupeQuelle = { ...src, pixels: { data: H.verstaerken(data, g), width: W, height: Hh } };
           voll = fertig;
         } else {
           voll = await createImageBitmap(new Blob([await (await fetch(`/${p.src}`)).arrayBuffer()]));

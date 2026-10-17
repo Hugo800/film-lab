@@ -3,6 +3,7 @@
 // Oberfläche in Headless Chrome als PC (1440×900) und Handy (393×852 @3x, Touch): Startseite (Beispielfotos quer bzw.
 // hochkant, am Handy auch nach dem Drehen), 2 JPEGs + 1 ARW laden,
 // Looks, Regler, Segmentwahl, Rezept einfügen, Export einzeln und alle (PC: ZIP, iPhone-Kennung: share() mit Einzeldateien). Die Downloads werden geprüft (Maße, EXIF, kein ICC, XMP, dekodierbar).
+// Zuletzt Beispielfoto im Editor bei gedrosseltem Netz: Ladeanzeige mit Anteil erscheint und verschwindet.
 // Der Server setzt die Header aus deploy/security-headers.conf; jeder CSP-Verstoß (Seite oder Worker) macht den Test rot.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -110,7 +111,8 @@ const server = createServer((req, res) => {
   // /__dl/… liefert die Downloads aus, damit die Seite sie zur Probe dekodieren kann.
   const file = path.startsWith('/__dl/') ? join(DL, path.slice(6)) : join(BUILD, path);
   if (!existsSync(file) || !statSync(file).isFile()) return res.writeHead(404, HEADERS).end();
-  res.writeHead(200, { ...HEADERS, 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
+  // Mit Content-Length wie nginx: daraus zeigt die Ladeanzeige der Beispielfotos ihren Anteil.
+  res.writeHead(200, { ...HEADERS, 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', 'content-length': statSync(file).size });
   createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(PORT, r));
@@ -465,6 +467,41 @@ async function run(mode, viewport) {
       }
     }
     await page.screenshot({ path: join(OUT, `${mode}-ende.png`) });
+
+    // Beispielfoto im Editor: Ladeanzeige mit Anteil erscheint und verschwindet, sobald der Editor das Foto zeigt.
+    // Eigene Seite ohne Service Worker, damit die Drosselung (600 KB/s) für die Editor-Fassung (~2,5 MB) greift.
+    const p2 = await browser.newPage();
+    try {
+      await p2.setBypassServiceWorker(true);
+      p2.on('pageerror', (e) => errors.push(e.message));
+      await p2.goto(BASE + '/', { waitUntil: 'networkidle0' });
+      const c2 = await p2.createCDPSession();
+      await c2.send('Network.enable');
+      await c2.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: 600 * 1024, uploadThroughput: -1 });
+      const warte2 = async (fn, ms) => {
+        for (const end = Date.now() + ms; ; await sleep(100)) {
+          const v = await p2.evaluate(fn).catch(() => null);
+          if (v || Date.now() >= end) return v;
+        }
+      };
+      const anzeige = () => {
+        const b = document.querySelector('[role=progressbar][aria-label="Beispielfoto laden"]');
+        return b && { text: b.closest('[role=status]')?.textContent ?? '', wert: Number(b.getAttribute('aria-valuenow') ?? -1) };
+      };
+      const tL = Date.now();
+      const knopf = await p2.evaluateHandle(() => [...document.querySelectorAll('main button')].find((b) => b.textContent.includes('Mit Beispielfoto ausprobieren')));
+      await (touch ? knopf.asElement().tap() : knopf.asElement().click());
+      const erst = await warte2(anzeige, 5000);
+      ok(!!erst && erst.text.includes('Beispielfoto wird geladen'), `Ladeanzeige erscheint (${erst ? `„${erst.text}“` : 'fehlt'})`);
+      const mitte = await warte2(() => { const b = document.querySelector('[role=progressbar][aria-label="Beispielfoto laden"]'); const v = Number(b?.getAttribute('aria-valuenow') ?? -1); return v >= 30 && v <= 90 && v; }, 15_000);
+      if (mitte) await p2.screenshot({ path: join(OUT, `${mode}-ladeanzeige.png`) });
+      ok(!!mitte, `Ladeanzeige zeigt den Anteil (${mitte} %)`);
+      const fertig = await warte2(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible' && !document.querySelector('[aria-label="Beispielfoto laden"]'), 60_000);
+      ok(!!fertig, `Ladeanzeige verschwindet, Editor zeigt das Beispielfoto (${secs(tL)})`);
+      await c2.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    } finally {
+      await p2.close();
+    }
   } catch (e) {
     ok(false, `Ablauf abgebrochen: ${e.message}`);
     await page.screenshot({ path: join(OUT, `${mode}-fehler.png`) }).catch(() => {});
