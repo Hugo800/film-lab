@@ -30,10 +30,12 @@ const PHOTOS = [
   { name: 'sonnenuntergang-hoch', src: 'testbilder/IMG_0366.JPEG', pos: [0.5, 0.4] },
   { name: 'nachts-quer', src: 'testbilder/IMG_0558.JPEG', pos: [0.3, 0.5] },
   { name: 'nachts-hoch', src: 'testbilder/IMG_0562.JPEG', pos: [0.5, 0.7] },
-  // F-16 auf der Intrepid (iPhone). Quer links bündig auf 3:2 beschnitten (rechts stand ein erkennbarer Besucher),
-  // Editor-Fassung höchstens 2048 px, damit Besucher im Hintergrund auch in der Lupe nicht erkennbar sind.
-  { name: 'jet-quer', src: 'testbilder/f16-quer.jpg', pos: [0.6, 0.6], ausschnitt: [0, 0, 0.84375, 1], editor: 2048 },
-  { name: 'jet-hoch', src: 'testbilder/f16-hoch.jpg', pos: [0.5, 0.9], editor: 2048 },
+  // F-16 auf der Intrepid (iPhone, IMG_0413/IMG_0412.HEIC, 48 MP, 4:3, Display P3). Chrome liest kein HEIC: vorher als
+  // JPEG mit eingebettetem P3-Profil, lange Kante 4032 (npm heic-decode + PIL, siehe browser-bild-io-jpeg-wasm im Depot).
+  // Quer 3:2 ohne den rechten Rand (dort stand ein erkennbarer Besucher), hoch 9:16 wie der eigene Zuschnitt (ohne die
+  // Leute am rechten Rand). Editor-Fassung höchstens 2048 px: Besucher im Hintergrund auch in der Lupe nicht erkennbar.
+  { name: 'jet-quer', src: 'testbilder/f16-quer.jpg', pos: [0.6, 0.6], ausschnitt: [0, 0.1, 0.89, 0.8911], editor: 2048 },
+  { name: 'jet-hoch', src: 'testbilder/f16-hoch.jpg', pos: [0.5, 0.9], ausschnitt: [0.11, 0, 0.86, 1], editor: 2048 },
 ];
 /** Nur diese Fotos (Namen auf der Kommandozeile), sonst alle. */
 const NUR = process.argv.slice(2);
