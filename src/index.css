@@ -45,6 +45,46 @@ body {
   overflow: hidden;
 }
 
+/* Oberkante der Bedienelemente. In der App auf dem iPhone liegt die Seite unter der Statusleiste, und iOS legt einen
+   Schleier bis gut 30 pt darunter (gemessen am iPhone 17 Pro, iOS 27): 24 px Abstand zusätzlich, aber nur mit oberem
+   Inset – im Browser-Tab und am Rechner ist er 0. */
+:root {
+  --oben: calc(env(safe-area-inset-top) + min(24px, env(safe-area-inset-top)));
+}
+
+/* Startseite: scrollt als Dokument statt in einem eigenen Container. Nur dann zeigt Safari (iOS 26+) den Inhalt unter
+   Statusleiste und Toolbar; scrollt das Dokument nicht, malt es dort deckende Balken. --kopf = Höhe des stehenden
+   Kopfs, auch als Abstand für Ankersprünge. */
+html:has(.startseite) {
+  --kopf: calc(var(--oben) + 4rem);
+  height: auto;
+  scroll-padding-top: var(--kopf);
+}
+@media (max-height: 540px) {
+  html:has(.startseite) {
+    --kopf: calc(var(--oben) + 3rem);
+  }
+}
+html:has(.startseite) body,
+html:has(.startseite) #root {
+  height: auto;
+}
+html:has(.startseite) body {
+  overflow: visible;
+}
+
+/* Kopf der Startseite: Linie erst, sobald Inhalt darunter verschwindet (ohne Scroll-Animationen gleich da). */
+@keyframes kopflinie {
+  to {
+    border-color: var(--color-line);
+  }
+}
+.startkopf {
+  animation: kopflinie linear both;
+  animation-timeline: scroll();
+  animation-range: 0 3rem;
+}
+
 button,
 label,
 [role='tab'] {

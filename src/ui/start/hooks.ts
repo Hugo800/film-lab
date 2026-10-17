@@ -18,9 +18,7 @@ export function useInView<T extends Element>(margin = '0px', bleibt = true) {
       setSeen(true);
       return;
     }
-    // Wurzel ist der scrollende <main>: sonst schneidet dessen Rand alles ab, und der Vorlauf (rootMargin) wirkt nicht.
     const io = new IntersectionObserver((entries) => setSeen((s) => (bleibt && s) || entries.at(-1)!.isIntersecting), {
-      root: el.closest('main'),
       rootMargin: margin,
     });
     io.observe(el);

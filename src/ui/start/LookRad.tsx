@@ -216,14 +216,19 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
   // wheel passiv anmeldet.
   useEffect(() => {
     const kachel = kachelRef.current;
-    const main = kachel?.closest('main');
-    if (!kachel || !main) return;
+    if (!kachel) return;
+    const seite = document.documentElement;
+    /** Sichtbarer Teil des Fensters: unter dem stehenden Kopf der Startseite (scroll-padding-top in index.css). */
+    const sicht = () => {
+      const top = parseFloat(getComputedStyle(seite).scrollPaddingTop) || 0;
+      return { top, bottom: window.innerHeight, height: window.innerHeight - top };
+    };
     /** Scrollstand, bei dem die Kachel mittig ganz im Bild ist – samt Überschrift bzw. Bedienung, soweit sie hineinpassen. */
     const rastStelle = () => {
-      const m = main.getBoundingClientRect();
+      const m = sicht();
       const el = [inhaltRef.current, buehneRef.current].find((x) => x && x.offsetHeight <= m.height - 16) ?? kachel;
       const r = el.getBoundingClientRect();
-      return clamp(Math.round(main.scrollTop + r.top - m.top - (m.height - r.height) / 2), 0, main.scrollHeight - main.clientHeight);
+      return clamp(Math.round(window.scrollY + r.top - m.top - (m.height - r.height) / 2), 0, seite.scrollHeight - seite.clientHeight);
     };
     let acc = 0;
     let letzterSchritt = -1e9;
@@ -245,15 +250,15 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
       letzterBetrag = Math.abs(dy);
       const dir = Math.sign(dy);
       if (rastet) {
-        if (Math.abs(main.scrollTop - ziel) >= 2 && now < rastet) return void e.preventDefault();
+        if (Math.abs(window.scrollY - ziel) >= 2 && now < rastet) return void e.preventDefault();
         rastet = 0;
         ruhigBis = now + SCHLUCKEN_MS;
       }
-      const m = main.getBoundingClientRect();
+      const m = sicht();
       const k = kachel.getBoundingClientRect();
       if (k.top < m.top - 1 || k.bottom > m.bottom + 1) {
         const z = rastStelle();
-        const off = z - main.scrollTop;
+        const off = z - window.scrollY;
         // Passt die Kachel nicht ganz ins Bild, dreht sie an der Raststelle trotzdem (sonst hinge das Rad fest).
         if (Math.abs(off) >= 2) {
           // Nur auf die Kachel zu einrasten; wer von ihr wegscrollt, scrollt normal.
@@ -262,7 +267,7 @@ export function LookRad({ photo, onPhoto }: { photo: BeispielId; onPhoto: (id: B
           acc = 0;
           ziel = z;
           rastet = now + 900;
-          main.scrollTo({ top: z, behavior: reduziert() ? 'auto' : 'smooth' });
+          window.scrollTo({ top: z, behavior: reduziert() ? 'auto' : 'smooth' });
           return;
         }
       }

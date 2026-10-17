@@ -143,7 +143,7 @@ export function BeispielLadeanzeige() {
   if (!z || !frei) return null;
   const prozent = z.anteil === null ? null : Math.round(z.anteil * 100);
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+56px)] z-[60] flex justify-center px-4 side:top-auto side:bottom-20">
+    <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--oben)+56px)] z-[60] flex justify-center px-4 side:top-auto side:bottom-20">
       <div role="status" className="flex w-80 max-w-full flex-col gap-2.5 rounded-2xl border border-line bg-raised/95 px-4 py-3 text-sm shadow-xl backdrop-blur">
         <p className="flex items-center gap-2.5">
           <Spinner className="size-4" />

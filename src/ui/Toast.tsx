@@ -34,7 +34,7 @@ export function Toast() {
   // Am Handy unter der Kopfzeile, in der Seitenleisten-Ansicht unten über der Bühne.
   return (
     <div
-      className={`pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+56px)] z-[60] flex justify-center px-4 side:top-auto side:bottom-20 ${
+      className={`pointer-events-none fixed inset-x-0 top-[calc(var(--oben)+56px)] z-[60] flex justify-center px-4 side:top-auto side:bottom-20 ${
         editor ? 'side:right-[clamp(300px,30vw,420px)]' : ''
       }`}
     >

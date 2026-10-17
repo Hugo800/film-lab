@@ -28,7 +28,7 @@ const ABSCHNITTE = [
   ['app', 'App'],
 ] as const;
 
-/** Sprung zu einem Abschnitt im scrollenden <main>, ohne die Adresse zu ändern. */
+/** Sprung zu einem Abschnitt, ohne die Adresse zu ändern (Abstand zum Kopf: scroll-padding-top in index.css). */
 function springen(e: MouseEvent<HTMLAnchorElement>) {
   e.preventDefault();
   const ziel = document.getElementById(e.currentTarget.hash.slice(1));
@@ -50,12 +50,12 @@ export function StartView({ onPick }: { onPick: () => void }) {
 
   return (
     <WerkstattContext.Provider value={werkstatt}>
-      <main className="isolate h-full overflow-x-hidden overflow-y-auto">
+      <main className="startseite isolate overflow-x-clip">
         <div aria-hidden className="korn pointer-events-none fixed inset-0 -z-10" />
 
-        {/* Füllt den ersten Bildschirm: Das Look-Rad beginnt darunter, seine Fotos und die Engine laden erst beim Scrollen. */}
-        <section className="flex min-h-full flex-col px-5 pt-[env(safe-area-inset-top)] side:px-8">
-          <header className="mx-auto flex h-16 w-full max-w-6xl flex-none items-center justify-between [@media(max-height:540px)]:h-12">
+        {/* Bleibt oben stehen. Deckend und ohne Unschärfe: Safari färbt die Statusleiste dann in genau diesem Ton. */}
+        <header className="startkopf sticky top-0 z-50 h-(--kopf) border-b border-transparent bg-ink px-5 pt-(--oben) side:px-8">
+          <div className="mx-auto flex h-full max-w-6xl items-center justify-between">
             {/* Nur das Zeichen: Der Name steht gleich darunter groß. */}
             <img src={`${BASE}favicon.svg`} alt="Film Lab" className="size-8" />
             <nav aria-label="Abschnitte" className="flex items-center gap-1 text-sm text-dim">
@@ -72,8 +72,11 @@ export function StartView({ onPick }: { onPick: () => void }) {
                 Als App
               </a>
             </nav>
-          </header>
+          </div>
+        </header>
 
+        {/* Füllt den ersten Bildschirm: Das Look-Rad beginnt darunter, seine Fotos und die Engine laden erst beim Scrollen. */}
+        <section className="flex min-h-[calc(100svh-var(--kopf))] flex-col px-5 side:px-8">
           <div className="mx-auto my-auto grid w-full max-w-6xl gap-7 pt-2 pb-10 side:grid-cols-[minmax(0,6fr)_minmax(0,7fr)] side:items-center side:gap-12 side:py-12 lg:gap-16 [@media(max-height:540px)]:side:py-3">
             <Filmstreifen
               className="side:order-2"

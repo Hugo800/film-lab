@@ -98,7 +98,7 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
 
   return (
     <div className="flex h-dvh flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] side:flex-row">
-      <div className="@container flex min-h-0 min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)] side:pb-[env(safe-area-inset-bottom)]">
+      <div className="@container flex min-h-0 min-w-0 flex-1 flex-col pt-(--oben) side:pb-[env(safe-area-inset-bottom)]">
         <header className="flex items-center gap-2 px-3 py-1">
           <Logo />
           <p className="hidden min-w-0 flex-1 truncate text-center text-sm text-dim min-[1100px]:block">
@@ -175,7 +175,7 @@ function Logo() {
 export function Hochladen({ onAdd, titel }: { onAdd: () => void; titel: string }) {
   const fotos = useStore((s) => s.photos.length);
   return (
-    <div className="@container flex h-dvh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
+    <div className="@container flex h-dvh flex-col pt-(--oben) pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
       <header className="flex items-center gap-2 px-3 py-1">
         <Logo />
       </header>
