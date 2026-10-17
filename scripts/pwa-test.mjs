@@ -71,6 +71,12 @@ try {
   await page.setOfflineMode(true);
   await page.reload({ waitUntil: 'networkidle0' });
   ok(await page.evaluate(() => !!document.querySelector('#datei-eingabe') && document.body.innerText.includes('Film Lab')), 'Offline: Startseite erscheint');
+  // Der Editor hat eine eigene Adresse; der Service Worker liefert dafür dieselbe Seite, die Dateien liegen absolut.
+  for (const pfad of ['lab', 'lab/']) {
+    await page.goto(URL + pfad, { waitUntil: 'networkidle0' });
+    ok(await page.evaluate(() => document.body.innerText.includes('Noch keine Fotos')), `Offline: /${pfad} zeigt den leeren Editor`);
+  }
+  await page.goto(URL, { waitUntil: 'networkidle0' });
   await load(page, JPEG);
   ok(true, 'Offline: JPEG bis „bereit“');
   await page.click('header button:last-of-type');
@@ -114,7 +120,8 @@ try {
   await swCdp.send('Network.enable');
   const swOffline = (offline) => swCdp.send('Network.emulateNetworkConditions', { offline, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   const beispiel = async () => {
-    await page.reload({ waitUntil: 'networkidle0' });
+    // Von /lab aus: die Startseite hat den Knopf „Mit Beispielfoto ausprobieren“.
+    await page.goto(URL, { waitUntil: 'networkidle0' });
     const antworten = [];
     const fehl = [];
     const onRes = (r) => r.url().includes('/beispiele/') && antworten.push({ url: r.url(), status: r.status(), sw: r.fromServiceWorker() });

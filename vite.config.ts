@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Relative base -> funktioniert unter jedem Unterpfad ohne Rebuild.
+// Absolute base: Der Editor liegt unter /lab, seine Dateien müssen auch von dort (und /lab/) gefunden werden.
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),

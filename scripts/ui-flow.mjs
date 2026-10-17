@@ -349,7 +349,7 @@ if (MODE === 'handy') {
 }
 await click(`b.textContent.trim() === 'Schließen'`);
 
-// 9 Foto entfernen (× am aktiven Bild, beim letzten die Taste Entf) bis zur Startansicht, mit Rückgängig
+// 9 Foto entfernen (× am aktiven Bild, beim letzten die Taste Entf) bis zum leeren Editor (/lab), mit Rückgängig
 const order = () => page.$$eval('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "][aria-current]', (b) => b.map((x) => `${x.getAttribute('aria-label')}|${x.getAttribute('aria-current')}`));
 const before9 = await order();
 await click(aria('Foto entfernen'));
@@ -358,20 +358,20 @@ ok((await order()).length === 0, 'Entfernen per × (danach ein Foto, kein Filmst
 await click(`b.textContent.trim() === 'Rückgängig'`);
 ok(await waitFor(() => document.querySelectorAll('ul[aria-label="Geladene Fotos"] button[aria-label^="Foto "][aria-current]').length === 2, 3000), 'Rückgängig nach dem Entfernen');
 ok(JSON.stringify(await order()) === JSON.stringify(before9), 'Rückgängig: gleiche Reihenfolge und aktives Foto', (await order()).join(', '));
-for (let i = 0; i < 4 && !(await text()).includes('Fotos wählen'); i++) {
+for (let i = 0; i < 4 && !(await text()).includes('Noch keine Fotos'); i++) {
   if (!(await click(aria('Foto entfernen')))) {
     await page.evaluate(() => document.activeElement?.blur());
     await page.keyboard.press('Delete');
   }
   await sleep(300);
 }
-ok((await text()).includes('Fotos wählen'), 'Alle Fotos entfernt → Startansicht');
-ok(await click(`b.textContent.trim() === 'Rückgängig'`), 'Startansicht bietet „Rückgängig“ für das letzte Foto');
+ok((await text()).includes('Noch keine Fotos'), 'Alle Fotos entfernt → leerer Editor');
+ok(await click(`b.textContent.trim() === 'Rückgängig'`), 'Leerer Editor bietet „Rückgängig“ für das letzte Foto');
 ok(await waitFor(() => document.querySelector('[aria-label^="Vorschau"]')?.style.visibility === 'visible', 30000), 'Letztes Foto per Rückgängig zurück');
 await page.evaluate(() => document.activeElement?.blur());
 await page.keyboard.press('Delete');
-ok(await waitFor(() => document.body.innerText.includes('Fotos wählen'), 3000), 'Entf entfernt das letzte Foto');
-if (!(await text()).includes('Fotos wählen')) { await shot('9-entfernen'); console.log((await text()).slice(0, 300)); }
+ok(await waitFor(() => document.body.innerText.includes('Noch keine Fotos'), 3000), 'Entf entfernt das letzte Foto');
+if (!(await text()).includes('Noch keine Fotos')) { await shot('9-entfernen'); console.log((await text()).slice(0, 300)); }
 
 // 10 Trefferflächen
 await (await page.$('#datei-eingabe')).uploadFile(PHOTOS[0]);

@@ -5,6 +5,7 @@ import { openExport } from './exporter';
 import { Filmstrip } from './Filmstrip';
 import { Panel } from './Panel';
 import { Preview } from './Preview';
+import { START_URL, zurStartseite } from './route';
 import { openPhoto } from './session';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { activePhoto, useStore } from './store';
@@ -99,10 +100,7 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
     <div className="flex h-dvh flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] side:flex-row">
       <div className="@container flex min-h-0 min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)] side:pb-[env(safe-area-inset-bottom)]">
         <header className="flex items-center gap-2 px-3 py-1">
-          <div className="flex flex-none items-center gap-2 pl-1 text-[15px] font-semibold tracking-tight">
-            <Aperture size={20} className="text-accent" aria-hidden />
-            <span className="sr-only @min-[480px]:not-sr-only">Film Lab</span>
-          </div>
+          <Logo />
           <p className="hidden min-w-0 flex-1 truncate text-center text-sm text-dim min-[1100px]:block">
             {name} · {index + 1} / {count}
           </p>
@@ -151,6 +149,44 @@ export function Editor({ onAdd }: { onAdd: () => void }) {
       </div>
       <Panel />
       {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
+    </div>
+  );
+}
+
+/** „Film Lab“ oben links: führt zur Startseite, die Fotos bleiben geladen. */
+function Logo() {
+  return (
+    <a
+      href={START_URL}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        zurStartseite();
+      }}
+      className="flex min-h-11 flex-none items-center gap-2 rounded-lg pl-1 pr-2 text-[15px] font-semibold tracking-tight"
+    >
+      <Aperture size={20} className="text-accent" aria-hidden />
+      <span className="sr-only @min-[480px]:not-sr-only">Film Lab</span>
+    </a>
+  );
+}
+
+/** Editor (/lab) ohne Fotos: Fotos wählen oder hierher ziehen. */
+export function EditorLeer({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="@container flex h-dvh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
+      <header className="flex items-center gap-2 px-3 py-1">
+        <Logo />
+      </header>
+      <main className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+        <ImagePlus size={32} className="text-accent" aria-hidden />
+        <h1 className="text-xl font-semibold">Noch keine Fotos</h1>
+        <p className="max-w-sm text-sm leading-relaxed text-dim">JPEG, PNG, HEIC oder Sony-RAW (ARW) wählen oder hierher ziehen.</p>
+        <Button variant="primary" onClick={onAdd} className="mt-2 min-h-14 px-8 text-lg">
+          <ImagePlus size={22} />
+          Fotos wählen
+        </Button>
+      </main>
     </div>
   );
 }

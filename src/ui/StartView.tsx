@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ImagePlus, Lock, Sparkles } from 'lucide-react';
+import { ArrowRight, ChevronDown, ImagePlus, Lock, Sparkles } from 'lucide-react';
 import { Button } from './controls';
 import { TRADEMARK_NOTE } from './lookRegistry';
+import { zumEditor } from './route';
 import { useStore } from './store';
 import { beispielInEditor } from './start/beispielLaden';
 import { Funktionen } from './start/Funktionen';
@@ -16,6 +17,8 @@ const TITELBILD = `${import.meta.env.BASE_URL}beispiele/titel.jpg`;
 
 export function StartView({ onPick }: { onPick: () => void }) {
   const dragging = useStore((s) => s.dragging);
+  // Über das Logo im Editor hierher gekommen: die Fotos sind noch geladen.
+  const fotos = useStore((s) => s.photos.length);
   // Eigene Engine für die Beispiele; startet erst beim ersten Auftrag, wird beim Wechsel in den Editor freigegeben.
   const werkstatt = useMemo(createWerkstatt, []);
   useEffect(() => () => werkstatt.dispose(), [werkstatt]);
@@ -72,6 +75,12 @@ export function StartView({ onPick }: { onPick: () => void }) {
                   Mit Beispielfoto ausprobieren
                 </Button>
               </div>
+              {fotos > 0 && (
+                <Button variant="ghost" onClick={zumEditor} className="mt-2 w-full lg:w-auto lg:self-start">
+                  <ArrowRight size={18} />
+                  Weiter bearbeiten ({fotos} {fotos === 1 ? 'Foto' : 'Fotos'})
+                </Button>
+              )}
               <p className="mt-5 flex gap-2.5 text-sm leading-relaxed text-dim [@media(max-height:540px)]:hidden">
                 <Lock size={17} className="mt-0.5 flex-none text-accent" aria-hidden />
                 <span>
